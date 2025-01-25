@@ -1,7 +1,0 @@
-
-#### EXAMPLES
-
-<blockquote>
-
-
-</blockquote>

@@ -159,7 +159,7 @@ export class TokenInfo {
 	private setHelpToFile(helpfile: string, config: vscode.WorkspaceConfiguration) {
 		this.offlinehelp = helpfile;
 		this.onlineHelp = `https://qb64phoenix.com/qb64wiki/index.php?search=${encodeURIComponent(this.keyword)}`
-		this.keywordNoPrefix = this.keyword.startsWith("_") ? this.keyword.slice(1) : this.keyword;
+		this.keywordNoPrefix = this.keyword.startsWith("_") ? this.keyword.substring(1) : this.keyword;
 		this.WordFormatted = this.getWordFormatted(config);
 	}
 
@@ -168,11 +168,13 @@ export class TokenInfo {
 	 * @returns 
 	 */
 	public getHoverText(): string {
+		const config: vscode.WorkspaceConfiguration = vscode.workspace.getConfiguration("qb64pe")
+		let helpPath: string = config.get("helpPath");
 		let retvalue = ""
 		if (this.isKeyword) {
 			if (this.offlinehelp.length > 0) {
 				retvalue = fs.readFileSync(this.offlinehelp).toString();
-				retvalue = retvalue.replaceAll(/\[([\w|\$]*)\]\((([\.|\/|\w|\$])*)\)/igm, '[$1](file:' + helpPath.replaceAll('\\', '/') + '/$1.md)');
+				retvalue = retvalue.replaceAll(/\[([\w|\$]*)\]\((([\.|\/|\w|\$])*)\)/igm, '[$1](file:' + helpPath.replaceAll('\\', '/') + '/' + this.keywordNoPrefix + '.md)');
 				//retvalue = retvalue.replaceAll(/\[([\w|\$]*)\]\(([\w|\$]*)\)/igm, '[$1](file:' + helpPath.replaceAll('\\', '/') + '/$1.md)');
 			} else {
 				retvalue = "Press F1 for help"

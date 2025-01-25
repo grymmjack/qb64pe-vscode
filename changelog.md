@@ -5,9 +5,12 @@ All notable changes to the "QB64 PE" extension will be documented in this file.
 - Enhancements
   - Modify`tasks.json` to support QB64 PE.
 
-## 0.10.5
+## 0.10.6
 - Enhancements
   - Modified to support QB64PE v4.x.x
+
+## 0.10.5
+- Enhancements
   - Added markdown help that's been styled and improved
     - Link to markdown file in title
     - Link to QB64PE wiki (click the 📖)
