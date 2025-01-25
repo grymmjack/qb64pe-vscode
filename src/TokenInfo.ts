@@ -48,10 +48,17 @@ export class TokenInfo {
 
 		let helpPath: string = config.get("helpPath");
 		let helpFile: string = path.join(helpPath, `${this.keyword}.md`).replaceAll("\\", "/");
+		// used to checking if the keyword has a leading _ if so, remove it for later checks
+		let helpFile_no_prefix: string = path.join(helpPath, `${this.keyword}.md`.substring(1)).replaceAll("\\", "/");	
 		if (fs.existsSync(helpFile)) {
 			this.isKeyword = true;
 			this.setHelpToFile(helpFile, config);
 			return
+		} else { // check if the keyword has a leading _ if so, remove it and try again
+			if (fs.existsSync(helpFile_no_prefix)) {
+				this.setHelpToFile(helpFile_no_prefix, config);
+				return
+			}
 		}
 
 		// //if (this.lineOfCode.toLowerCase().trim().indexOf("for") == 0 || this.lineOfCode.toLowerCase().trim().indexOf("if") == 0) {
@@ -186,7 +193,7 @@ export class TokenInfo {
 				const config: vscode.WorkspaceConfiguration = vscode.workspace.getConfiguration("qb64pe")
 				let helpPath: string = config.get("helpPath");
 				retvalue = fs.readFileSync(this.offlinehelp).toString();
-				retvalue = retvalue.replaceAll(/\[([\w|\$]*)\]\((([\.|\/|\w|\$])*)\)/igm, '[$1](file:' + helpPath.replaceAll('\\', '/') + '/$1.md)');				
+				retvalue = retvalue.replaceAll(/\[([\w|\$]*)\]\((([\.|\/|\w|\$])*)\)/igm, '[$1](file:' + helpPath.replaceAll('\\', '/') + '/$1.md)');
 				//retvalue = retvalue.replaceAll(/\[([\w|\$]*)\]\(([\w|\$]*)\)/igm, '[$1](file:' + helpPath.replaceAll('\\', '/') + '/$1.md)');
 			} else {
 				retvalue = "Press F1 for help"
