@@ -5,17 +5,17 @@ import * as logFunctions from "./logFunctions";
 import * as commonFunctions from "./commonFunctions";
 
 export class TokenInfo {
-	private outputChannnel: any = null;
+	private outputChannel: any = null;
 	private readonly lineOfCode: string = "";
 	public readonly keyword: string = "";
-	public keywordNoPrfix: string = "";
+	public keywordNoPrefix: string = "";
 	public readonly token: string = "";
 	public offlinehelp: string = "";
 	public onlineHelp: string = ""; // Should be read only or have a private setter.
 	public WordFormatted: string = ""; // Should be read only or have a private setter.
 	public readonly isKeyword: boolean = true;
 
-	constructor(token?: string, lineOfCode?: string, outputChannnelToUse?: any) {
+	constructor(token?: string, lineOfCode?: string, outputChannelToUse?: any) {
 		if (!token || token.length < 1) {
 			const editor = vscode.window.activeTextEditor;
 			let word: string = "";
@@ -35,10 +35,10 @@ export class TokenInfo {
 			}
 		}
 
-		if (outputChannnelToUse) {
-			this.outputChannnel = outputChannnelToUse;
+		if (outputChannelToUse) {
+			this.outputChannel = outputChannelToUse;
 		} else {
-			this.outputChannnel = logFunctions.getChannel(logFunctions.channelType.help);
+			this.outputChannel = logFunctions.getChannel(logFunctions.channelType.help);
 		}
 
 		this.token = token;
@@ -68,84 +68,84 @@ export class TokenInfo {
 		// }
 		// //}
 
-		// // if (fs.existsSync(helpFile)) {
-		// // 	this.setHelpToFile(helpFile, config);
-		// // 	return
-		// // }
-
-		// // This really needs reworked
-		// helpFile = path.join(helpPath, `${this.keyword.toUpperCase()}$.md`).replaceAll("\\", "/");
 		// if (fs.existsSync(helpFile)) {
 		// 	this.setHelpToFile(helpFile, config);
 		// 	return
 		// }
 
-		// helpFile = path.join(helpPath, `${this.keyword.toUpperCase()}.md`).replaceAll("\\", "/");
-		// if (fs.existsSync(helpFile)) {
-		// 	this.setHelpToFile(helpFile, config);
-		// 	return
-		// }
+		// This really needs reworked
+		helpFile = path.join(helpPath, `${this.keyword.toUpperCase()}$.md`).replaceAll("\\", "/");
+		if (fs.existsSync(helpFile)) {
+			this.setHelpToFile(helpFile, config);
+			return
+		}
 
-		// helpFile = path.join(helpPath, `${this.keyword.toUpperCase()}.txt`).replaceAll("\\", "/");
-		// if (fs.existsSync(helpFile)) {
-		// 	this.setHelpToFile(helpFile, config);
-		// 	return
-		// }
+		helpFile = path.join(helpPath, `${this.keyword.toUpperCase()}.md`).replaceAll("\\", "/");
+		if (fs.existsSync(helpFile)) {
+			this.setHelpToFile(helpFile, config);
+			return
+		}
 
-		// helpFile = path.join(helpPath, `${this.keyword.toUpperCase()}$.txt`).replaceAll("\\", "/");
-		// if (fs.existsSync(helpFile)) {
-		// 	this.setHelpToFile(helpFile, config);
-		// 	return
-		// }
+		helpFile = path.join(helpPath, `${this.keyword.toUpperCase()}.txt`).replaceAll("\\", "/");
+		if (fs.existsSync(helpFile)) {
+			this.setHelpToFile(helpFile, config);
+			return
+		}
 
-		// helpFile = path.join(helpPath, `$${this.keyword.toUpperCase()}.md`).replaceAll("\\", "/");
-		// if (fs.existsSync(helpFile)) {
-		// 	this.setHelpToFile(helpFile, config);
-		// 	return
-		// }
+		helpFile = path.join(helpPath, `${this.keyword.toUpperCase()}$.txt`).replaceAll("\\", "/");
+		if (fs.existsSync(helpFile)) {
+			this.setHelpToFile(helpFile, config);
+			return
+		}
 
-		// helpFile = path.join(helpPath, `$${this.keyword.toUpperCase()}.txt`).replaceAll("\\", "/");
-		// if (fs.existsSync(helpFile)) {
-		// 	this.setHelpToFile(helpFile, config);
-		// 	return
-		// }
+		helpFile = path.join(helpPath, `$${this.keyword.toUpperCase()}.md`).replaceAll("\\", "/");
+		if (fs.existsSync(helpFile)) {
+			this.setHelpToFile(helpFile, config);
+			return
+		}
 
-		// this.keyword = `_${token}`;
-		// helpFile = path.join(helpPath, `${this.keyword.toUpperCase()}$.md`).replaceAll("\\", "/");
-		// if (fs.existsSync(helpFile)) {
-		// 	this.setHelpToFile(helpFile, config);
-		// 	return
-		// }
+		helpFile = path.join(helpPath, `$${this.keyword.toUpperCase()}.txt`).replaceAll("\\", "/");
+		if (fs.existsSync(helpFile)) {
+			this.setHelpToFile(helpFile, config);
+			return
+		}
 
-		// helpFile = path.join(helpPath, `${this.keyword.toUpperCase()}.md`).replaceAll("\\", "/");
-		// if (fs.existsSync(helpFile)) {
-		// 	this.setHelpToFile(helpFile, config);
-		// 	return
-		// }
+		this.keyword = `_${token}`;
+		helpFile = path.join(helpPath, `${this.keyword.toUpperCase()}$.md`).replaceAll("\\", "/");
+		if (fs.existsSync(helpFile)) {
+			this.setHelpToFile(helpFile, config);
+			return
+		}
 
-		// helpFile = path.join(helpPath, `$$${this.keyword.toUpperCase()}.md`).replaceAll("\\", "/");
-		// if (fs.existsSync(helpFile)) {
-		// 	this.setHelpToFile(helpFile, config);
-		// 	return
-		// }
+		helpFile = path.join(helpPath, `${this.keyword.toUpperCase()}.md`).replaceAll("\\", "/");
+		if (fs.existsSync(helpFile)) {
+			this.setHelpToFile(helpFile, config);
+			return
+		}
 
-		// helpFile = path.join(helpPath, `$$${this.keyword.toUpperCase()}.txt`).replaceAll("\\", "/");
-		// if (fs.existsSync(helpFile)) {
-		// 	this.setHelpToFile(helpFile, config);
-		// 	return
-		// }
+		helpFile = path.join(helpPath, `$$${this.keyword.toUpperCase()}.md`).replaceAll("\\", "/");
+		if (fs.existsSync(helpFile)) {
+			this.setHelpToFile(helpFile, config);
+			return
+		}
 
-		// helpFile = path.join(helpPath, `${this.keyword.toUpperCase()}.txt`).replaceAll("\\", "/");
-		// if (fs.existsSync(helpFile)) {
-		// 	this.setHelpToFile(helpFile, config);
-		// 	return
-		// }
+		helpFile = path.join(helpPath, `$$${this.keyword.toUpperCase()}.txt`).replaceAll("\\", "/");
+		if (fs.existsSync(helpFile)) {
+			this.setHelpToFile(helpFile, config);
+			return
+		}
 
-		// helpFile = path.join(helpPath, `${this.keyword.toUpperCase()}$.txt`).replaceAll("\\", "/");
-		// if (fs.existsSync(helpFile)) {
-		// 	this.setHelpToFile(helpFile, config);
-		// 	return
-		// }
+		helpFile = path.join(helpPath, `${this.keyword.toUpperCase()}.txt`).replaceAll("\\", "/");
+		if (fs.existsSync(helpFile)) {
+			this.setHelpToFile(helpFile, config);
+			return
+		}
+
+		helpFile = path.join(helpPath, `${this.keyword.toUpperCase()}$.txt`).replaceAll("\\", "/");
+		if (fs.existsSync(helpFile)) {
+			this.setHelpToFile(helpFile, config);
+			return
+		}
 
 		this.keyword = token;
 		this.isKeyword = false;
@@ -159,7 +159,7 @@ export class TokenInfo {
 	private setHelpToFile(helpfile: string, config: vscode.WorkspaceConfiguration) {
 		this.offlinehelp = helpfile;
 		this.onlineHelp = `https://qb64phoenix.com/qb64wiki/index.php?search=${encodeURIComponent(this.keyword)}`
-		this.keywordNoPrfix = this.keyword.startsWith("_") ? this.keyword.slice(1) : this.keyword;
+		this.keywordNoPrefix = this.keyword.startsWith("_") ? this.keyword.slice(1) : this.keyword;
 		this.WordFormatted = this.getWordFormatted(config);
 	}
 
@@ -167,31 +167,10 @@ export class TokenInfo {
 	 * Gets the hovertext to show
 	 * @returns 
 	 */
-	// public getHoverText(): string {
-	// 	let retvalue = ""
-		
-	// 	if (this.isKeyword) {
-	// 		if (this.offlinehelp.length > 0) {
-	// 			const config: vscode.WorkspaceConfiguration = vscode.workspace.getConfiguration("qb64pe")
-	// 			let helpPath: string = config.get("helpPath");
-	// 			retvalue = fs.readFileSync(this.offlinehelp).toString();
-	// 			let help_path = helpPath.replaceAll('\\', '/');
-	// 			let reg = /\[(.+)\]\((.+)\)/igm;
-	// 			retvalue = retvalue.replaceAll(reg, '[$1](file:' + help_path + '/$2)');
-	// 			console.log(retvalue);
-	// 			// retvalue = retvalue.replaceAll(/href=\"(?!(http|https))(.+?)\"/igm, 'href="file:///' + helpPath.replaceAll('\\', '/') + '/$1.md"');
-	// 		} else {
-	// 			retvalue = "Press F1 for help"
-	// 		}
-	// 	}
-	// 	return retvalue;
-	// }
 	public getHoverText(): string {
 		let retvalue = ""
 		if (this.isKeyword) {
 			if (this.offlinehelp.length > 0) {
-				const config: vscode.WorkspaceConfiguration = vscode.workspace.getConfiguration("qb64pe")
-				let helpPath: string = config.get("helpPath");
 				retvalue = fs.readFileSync(this.offlinehelp).toString();
 				retvalue = retvalue.replaceAll(/\[([\w|\$]*)\]\((([\.|\/|\w|\$])*)\)/igm, '[$1](file:' + helpPath.replaceAll('\\', '/') + '/$1.md)');
 				//retvalue = retvalue.replaceAll(/\[([\w|\$]*)\]\(([\w|\$]*)\)/igm, '[$1](file:' + helpPath.replaceAll('\\', '/') + '/$1.md)');
@@ -210,18 +189,18 @@ export class TokenInfo {
 			const config = vscode.workspace.getConfiguration("qb64pe");
 			if (this.offlinehelp.length > 0) {
 				if (config.get("isOpenHelpInEditModeEnabled")) {
-					logFunctions.writeLine(`Open ${this.offlinehelp} in edit mode`, this.outputChannnel);
+					logFunctions.writeLine(`Open ${this.offlinehelp} in edit mode`, this.outputChannel);
 					vscode.workspace.openTextDocument(this.offlinehelp).then(d => vscode.window.showTextDocument(d));
 				} else {
-					logFunctions.writeLine(`Open ${this.offlinehelp} in view mode`, this.outputChannnel);
+					logFunctions.writeLine(`Open ${this.offlinehelp} in view mode`, this.outputChannel);
 					vscode.commands.executeCommand('markdown.showPreview', vscode.Uri.file(this.offlinehelp));
 				}
 			} else if (config.get("isOpenOnLineHelpEnabled")) {
-				logFunctions.writeLine(`Open URL: ${this.onlineHelp} `, this.outputChannnel);
+				logFunctions.writeLine(`Open URL: ${this.onlineHelp} `, this.outputChannel);
 				vscode.commands.executeCommand('vscode.open', vscode.Uri.parse(this.onlineHelp));
 			}
 		} catch (error) {
-			logFunctions.writeLine(`ERROR in showHelp: ${error}`, this.outputChannnel);
+			logFunctions.writeLine(`ERROR in showHelp: ${error}`, this.outputChannel);
 			vscode.window.showErrorMessage(`"ERROR: ${error}`)
 		}
 	}
@@ -232,7 +211,7 @@ export class TokenInfo {
 	private helpify(): string {
 		let word = this.keyword.trim().toLowerCase();
 
-		// logFunctions.writeLine(`Helpify Before: ${word}`, this.outputChannnel);
+		logFunctions.writeLine(`Helpify Before: ${word}`, this.outputChannel);
 
 		if (word == "end") {
 			word = "End"
@@ -257,13 +236,13 @@ export class TokenInfo {
 		} else if (word == "def" || word == "seg") {
 			word = "DEF-SEG";
 		}
-		// logFunctions.writeLine(`After Before: ${word}`, this.outputChannnel);
+		logFunctions.writeLine(`After Before: ${word}`, this.outputChannel);
 		return word;
 	}
 
 	/**
 	 * Gets the the formatted version of the token
-	 * @param config WorkspaceConfiguration used to check the user selected formattting settings
+	 * @param config WorkspaceConfiguration used to check the user selected formatting settings
 	 * @returns 
 	 */
 	private getWordFormatted(config: vscode.WorkspaceConfiguration) {
@@ -271,11 +250,11 @@ export class TokenInfo {
 			return this.token;
 		}
 
-		// logFunctions.writeLine(`getWordFormatted: started: "${this.token}" | ${config.get("isFormatMetaComamndsMixedCaseEnabled")}`, this.outputChannnel);
+		// logFunctions.writeLine(`getWordFormatted: started: "${this.token}" | ${config.get("isFormatMetaCommandsMixedCaseEnabled")}`, this.outputChannel);
 
 		const lowerToken = this.token.toLowerCase();
 
-		if (config.get("isFormatMetaComamndsMixedCaseEnabled")
+		if (config.get("isFormatMetaCommandsMixedCaseEnabled")
 			&& (this.token.startsWith("$")
 				|| this.token.startsWith("'$")
 				|| lowerToken == "companyname"
@@ -321,7 +300,6 @@ export class TokenInfo {
 			default:
 				return this.token;
 		}
-
 
 	}
 

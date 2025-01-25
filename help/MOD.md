@@ -1,27 +1,148 @@
-## MOD
+<style type="text/css">
+body {
+    background: #00a !important;
+    color: #ccc !important;
+}
+li {
+    list-style-type: square !important;
+    color: #ccc !important;
+}
+li::marker {
+    color: #77f !important;
+}    
+hr {
+    border-color: #55f !important;
+    border-width: 2px !important;
+}
+h2 {
+    color: #fff !important;
+    border: 0 !important;
+}
+h3 {
+    color: #cfc !important;
+    border: 0 !important;
+}
+h4 {
+    color: #ccc !important;
+    border: 0 !important;
+}
+h5 {
+    margin: 0 0 0.5em 0  !important;
+    color: #88f !important;
+    border: 0 !important;
+    font-style: italic !important;
+    font-weight: normal !important;
+}
+code {
+    background: #000 !important;
+    margin: 0 !important;
+    padding: 8px !important;
+    border-radius: 4px !important; 
+    border: 1px solid #333 !important;
+}
+pre > code {
+    background: transparent !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border-radius: inherit !important; 
+    border: 0 !important;
+}
+blockquote {
+    border: 0 !important;
+    background: transparent !important;
+    margin: 0 !important;
+    padding: 0 1em !important;
+}
+pre {
+    border-radius: 4px !important;
+    background: #000 !important;
+    border: 1px solid #333 !important;
+    margin: 0 !important;
+}
+a:link, a:visited, a:hover, a:active {
+    color: #ff0 !important;
+}
+br + pre {
+    border-radius: 0 !important;
+    border-style: inset !important;
+    border-width: 5px !important;
+    border-color: #999 !important;
+    background-color: #000 !important;
+    box-shadow: 0px 10px 3px rgba(0, 0, 0, 0.25) !important;
+    margin-top: -1em !important;
+}
+br + pre::before {
+    content: "OUTPUT \A" !important;
+    color: #555 !important;
+    border-bottom: 1px solid #333;
+    font-size: x-small;
+    display: block !important;
+    padding: 0 3px !important;
+    margin: -1em -1em 1em -1em !important;
+    -webkit-user-select: none; /* Safari */
+    -ms-user-select: none; /* IE 10 and IE 11 */
+    user-select: none; /* Standard syntax */    
+}
+br ~ h5 {
+    margin-top: 2em !important;
+}
+.explanation {
+    color: #995 !important;
+    /* background-color: rgba(150, 150, 100) !important; */
+    border-radius: 10em !important;
+    border: 2px #441 dashed !important;
+    padding: 8px 32px !important;
+    margin-bottom: 4em !important;
+    font-size: x-small !important;
+}
+</style>
+
+
+## [MOD](MOD.md) [📖](https://qb64phoenix.com/qb64wiki/index.php/MOD)
 ---
+<blockquote>
 
 ### The MOD operator gives the remainder after division of one number by another (sometimes called modulus).
 
+</blockquote>
+
 #### SYNTAX
+
+<blockquote>
 
 `remainder = numerator MOD divisor`
 
-#### PARAMETERS
-* Returns the integer division remainder as a whole [INTEGER](./INTEGER.md) , [LONG](./LONG.md) or [_INTEGER64](./_INTEGER64.md) value.
-* numerator is the [INTEGER](./INTEGER.md) value to divide.
-* divisor is the [INTEGER](./INTEGER.md) value to divide by.
+</blockquote>
 
+#### PARAMETERS
+
+<blockquote>
+
+
+* Returns the integer division remainder as a whole [INTEGER](INTEGER.md) , [LONG](LONG.md) or _INTEGER64 value.
+* numerator is the [INTEGER](INTEGER.md) value to divide.
+* divisor is the [INTEGER](INTEGER.md) value to divide by.
+</blockquote>
 
 #### DESCRIPTION
-* Floating decimal point numerator and divisor values are [CINT](./CINT.md) rounded (e.g. 19 [MOD](./MOD.md) 6.7 returns 5 just like 19 [MOD](./MOD.md) 7 would).
-* [MOD](./MOD.md) returns 0 if a number is evenly divisible by integer division ( \ ) or the number divided is 0.
-* divisor (second value) must not be between 0 and .5 . This will create a "Division by zero" error due to [CINT](./CINT.md) rounding the value to 0.
-* The result has the same sign as the numerator (e.g. -1 [MOD](./MOD.md) 7 returns -1, not 6).
+
+<blockquote>
+
+
+* Floating decimal point numerator and divisor values are [CINT](CINT.md) rounded (e.g. 19 [MOD](MOD.md) 6.7 returns 5 just like 19 [MOD](MOD.md) 7 would).
+* [MOD](MOD.md) returns 0 if a number is evenly divisible by integer division ( \ ) or the number divided is 0.
+* divisor (second value) must not be between 0 and .5 . This will create a "Division by zero" error due to [CINT](CINT.md) rounding the value to 0.
+* The result has the same sign as the numerator (e.g. -1 [MOD](MOD.md) 7 returns -1, not 6).
 * Division and multiplication operations are performed before addition and subtraction in QBasic's order of operations.
 
+</blockquote>
 
 #### EXAMPLES
+
+<blockquote>
+
+
+
 ##### Example 1:
 ```vb
 I% = 100 \ 9
@@ -29,11 +150,16 @@ I% = 100 \ 9
  PRINT "Integer division ="; I%, "Remainder ="; R%
 ```
   
+<br>
+
 ```vb
 Integer division = 11        Remainder = 1
 ```
   
-##### Explanation: Integer division 100 \ 9 returns 11. 11 * 9 = 99. So the remainder must be 1 as 100 - 99 = 1. Normal decimal point division would return 11.11111.
+<br>
+
+
+
 ##### Example 2: Comparing normal, integer and remainder division.
 ```vb
 tmp1$ = " Normal:         ####.# / #### = ##.###   "
@@ -55,6 +181,10 @@ DO: SLEEP: LOOP UNTIL INKEY$ <> ""
 NEXT
 ```
   
+<br>
+
+
+
 ##### Example 3: Integer division and MOD can be used to convert values to different base numbering systems from base 2 to 36 as strings :
 ```vb
 CLS
@@ -91,11 +221,19 @@ BASEN$ = BN$
 END FUNCTION
 ```
   
+<br>
 
+
+</blockquote>
 
 #### SEE ALSO
+
+<blockquote>
+
+
 * Featured in our "Keyword of the Day" series
 * / (normal division operator)
 * \ (integer division operator)
-* [INT](./INT.md) , [CINT](./CINT.md) , [FIX](./FIX.md) , [_ROUND](./_ROUND.md) , [_CEIL](./_CEIL.md)
+* [INT](INT.md) , [CINT](CINT.md) , [FIX](FIX.md) , _ROUND , _CEIL
 * Mathematical Operations
+</blockquote>

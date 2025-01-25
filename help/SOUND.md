@@ -1,29 +1,196 @@
-## SOUND
----
+<style type="text/css">
+body {
+    background: #00a !important;
+    color: #ccc !important;
+}
+li {
+    list-style-type: square !important;
+    color: #ccc !important;
+}
+li::marker {
+    color: #77f !important;
+}    
+hr {
+    border-color: #55f !important;
+    border-width: 2px !important;
+}
+h2 {
+    color: #fff !important;
+    border: 0 !important;
+}
+h3 {
+    color: #cfc !important;
+    border: 0 !important;
+}
+h4 {
+    color: #ccc !important;
+    border: 0 !important;
+}
+h5 {
+    margin: 0 0 0.5em 0  !important;
+    color: #88f !important;
+    border: 0 !important;
+    font-style: italic !important;
+    font-weight: normal !important;
+}
+code {
+    background: #000 !important;
+    margin: 0 !important;
+    padding: 8px !important;
+    border-radius: 4px !important; 
+    border: 1px solid #333 !important;
+}
+pre > code {
+    background: transparent !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border-radius: inherit !important; 
+    border: 0 !important;
+}
+blockquote {
+    border: 0 !important;
+    background: transparent !important;
+    margin: 0 !important;
+    padding: 0 1em !important;
+}
+pre {
+    border-radius: 4px !important;
+    background: #000 !important;
+    border: 1px solid #333 !important;
+    margin: 0 !important;
+}
+a:link, a:visited, a:hover, a:active {
+    color: #ff0 !important;
+}
+br + pre {
+    border-radius: 0 !important;
+    border-style: inset !important;
+    border-width: 5px !important;
+    border-color: #999 !important;
+    background-color: #000 !important;
+    box-shadow: 0px 10px 3px rgba(0, 0, 0, 0.25) !important;
+    margin-top: -1em !important;
+}
+br + pre::before {
+    content: "OUTPUT \A" !important;
+    color: #555 !important;
+    border-bottom: 1px solid #333;
+    font-size: x-small;
+    display: block !important;
+    padding: 0 3px !important;
+    margin: -1em -1em 1em -1em !important;
+    -webkit-user-select: none; /* Safari */
+    -ms-user-select: none; /* IE 10 and IE 11 */
+    user-select: none; /* Standard syntax */    
+}
+br ~ h5 {
+    margin-top: 2em !important;
+}
+.explanation {
+    color: #995 !important;
+    /* background-color: rgba(150, 150, 100) !important; */
+    border-radius: 10em !important;
+    border: 2px #441 dashed !important;
+    padding: 8px 32px !important;
+    margin-bottom: 4em !important;
+    font-size: x-small !important;
+}
+</style>
 
-### SOUND sets frequency and duration of sounds from the internal PC speaker if the computer has one or the sound card in QB64.
+
+## [SOUND](SOUND.md) [📖](https://qb64phoenix.com/qb64wiki/index.php/SOUND)
+---
+<blockquote>
+
+### SOUND produces a sound from the speaker, builds a queue of sounds, and plays a queue of sounds.
+
+</blockquote>
 
 #### SYNTAX
 
-`SOUND frequency# , duration# [, volume# ][, panning# ][, waveform& ]`
+<blockquote>
+
+`SOUND frequency! , duration! [, volume! ][, panPosition! ][, waveform& ][, waveformParameters! ][, voice& ]]`
+
+</blockquote>
 
 #### DESCRIPTION
-* frequency# is any literal or variable value from 37 to 32767, but 0 is allowed for delays.
-	* Just like QuickBASIC 4.5 frequencies on or above 20000 produces silence.
-* duration# is any literal or variable number of [TIMER](./TIMER.md) ticks with a duration of 1/18th second. 18 = one second.
-* Optional parameter volume# should be between 0.0 (muted) to 1.0 (full volume).
-* Optional parameter panning# should be between -1.0 (hard left) to 1.0 (hard right). 0.0 being center.
-* Optional parameter waveform& can be one of the following:
-	* 1 for square waveform
-	* 2 for sawtooth waveform
-	* 3 for triangle waveform (default)
-	* 4 for sine waveform
-	* 5 for white noise
-* More waveform types may be introduced in the future.
-* [PLAY](./PLAY.md) can be used for musical sounds.
 
+<blockquote>
+
+
+* frequency! is any literal or variable value from 37 to 32767, but 0 is allowed for delays.
+* Just like QuickBASIC 4.5 frequencies on or above 20000 Hz produce silence.
+* duration! is any literal or variable number of [TIMER](TIMER.md) ticks with a duration of 1/18th second (18 = 1 second).
+* A duration of 0 does not produce any sound. However, it can be used to set voice/waveform parameters.
+* Optional parameter volume! should be between 0.0 (muted) to 1.0 (full volume).
+* Optional parameter panPosition! should be between -1.0 (hard left) to 1.0 (hard right). 0.0 being center.
+* By default panPosition! is set to 0.0 for all voices.
+* Optional parameter waveform& can be one of the following:
+* 1 for square waveform (default)
+* 2 for sawtooth waveform
+* 3 for triangle waveform
+* 4 for sine waveform
+* 5 for white noise
+* 6 for pink noise
+* 7 for Brownian noise
+* 8 for LFSR-based noise
+* 9 for pulse waveform
+* 10 for a waveform defined by the _WAVE statement
+* Optional parameter waveformParameters! can set waveform characteristics based on the current waveform& .
+* waveformParameters! sets the seed when waveform& is 5 , 6 , or 7 .
+* waveformParameters! sets the LFSR clock rate when waveform& is 8 .
+* waveformParameters! sets the duty cycle (0.0 to 1.0) when waveform& is 9 .
+* Optional parameter voice& can be a numeric expression ranging from 0 to 3. It specifies the voice channel that will be used to play the sound.
+* Multi-voice support was inspired by Amiga Basic and Advanced BASIC (for the IBM PCjr and Tandy 1000).
+* [SOUND](SOUND.md) [WAIT](WAIT.md) causes all subsequent [SOUND](SOUND.md) statements to be queued.
+* [SOUND](SOUND.md) [RESUME](RESUME.md) causes all queued [SOUND](SOUND.md) statements to be processed and sent to the audio device.
+* The latter two commands can be used to synchronize all voices (see the example for _WAVE ).
+* [PLAY](PLAY.md) can be used for musical sounds.
+
+</blockquote>
 
 #### EXAMPLES
+
+<blockquote>
+
+```vb
+The Seven Music Octaves 
+
+        Note     Frequency      Note     Frequency      Note      Frequency
+      1* D#1 ...... 39           G3 ....... 196          A#5 ...... 932
+         E1 ....... 41           G#3 ...... 208          B5 ....... 988
+         F1 ....... 44           A3 ....... 220       6* C6 ....... 1047
+         F#1 ...... 46           A#3 ...... 233          C#6 ...... 1109
+         G1 ....... 49           B3 ....... 247          D6 ....... 1175
+         G#1 ...... 51        4* C4 ....... 262          D#6 ...... 1245
+         A1 ....... 55           C#4 ...... 277          E6 ....... 1318
+         A#1 ...... 58           D4 ....... 294          F6 ....... 1397
+         B1 ....... 62           D#4 ...... 311          F#6 ...... 1480
+      2* C2 ....... 65           E4 ....... 330          G6 ....... 1568
+         C#2 ...... 69           F4 ....... 349          G# ....... 1661
+         D2 ....... 73           F#4 ...... 370          A6 ....... 1760
+         D#2 ...... 78           G4 ....... 392          A#6 ...... 1865
+         E2 ....... 82           G#4 ...... 415          B6 ....... 1976
+         F2 ....... 87           A4 ....... 440       7* C7 ....... 2093
+         F#2 ...... 92           A# ....... 466          C#7 ...... 2217
+         G2 ....... 98           B4 ....... 494          D7 ....... 2349
+         G#2 ...... 104       5* C5 ....... 523          D#7 ...... 2489
+         A2 ....... 110          C#5 ...... 554          E7 ....... 2637
+         A#2 ...... 117          D5 ....... 587          F7 ....... 2794
+         B2 ....... 123          D#5 ...... 622          F#7 ...... 2960
+      3* C3 ....... 131          E5 ....... 659          G7 ....... 3136
+         C#3 ...... 139          F5 ....... 698          G#7 ...... 3322
+         D3 ....... 147          F#5 ...... 740          A7 ....... 3520
+         D#3 ...... 156          G5 ....... 784          A#7 ...... 3729
+         E3 ....... 165          G#5 ...... 831          B7 ....... 3951
+         F3 ....... 175          A5 ....... 880       8* C8 ....... 4186
+         F#3 ...... 185
+                                # denotes sharp
+```
+  
+<br>
+
 ```vb
 notes$ = "C C#D D#E F F#G G#A A#B "
 COLOR 9: LOCATE 5, 20: PRINT "Select an octave (1 - 7) to play (8 quits):"
@@ -56,6 +223,8 @@ Octaves:
 DATA 32.7,34.65,36.71,38.9,41.2,43.65,46.25,49,51.91,55,58.27,61.74
 ```
   
+<br>
+
 ```vb
 SCREEN 13
 _FULLSCREEN
@@ -94,6 +263,8 @@ DATA 523,8," lies ",587,8,"O-",523,8,"ver ",440,8,"the ",392,8,"O-",330,32,"cean
 DATA 440,8,"bring ",587,8,"back ",523,8,"my ",494,8,"Bon-",440,8,"nie ",494,8,"to ",523,32,"me..!"
 ```
   
+<br>
+
 ```vb
 OPTION _EXPLICIT
 
@@ -193,9 +364,16 @@ SUB Siren (Hi AS LONG, Range AS LONG)
 END SUB
 ```
   
+<br>
 
+
+</blockquote>
 
 #### SEE ALSO
-* [PLAY](./PLAY.md) , [BEEP](./BEEP.md)
-* [_SNDOPEN](./_SNDOPEN.md)
-* [_SNDRAW](./_SNDRAW.md)
+
+<blockquote>
+
+
+* [PLAY](PLAY.md) , [BEEP](BEEP.md) , _WAVE
+* _SNDOPEN , _SNDRAW
+</blockquote>
