@@ -4,6 +4,9 @@ A VSCode extension that adds support for [QB64 PE](https://www.qb64phoenix.com).
 
 > This fork was created with permission from LordDurus to enhance and extend the vscode extension to support QB64PE.
 
+## Get it from open-vsx.org
+> https://open-vsx.org/extension/grymmjack/qb64pe
+
 ## Features
 
 * Utilize `F1` to *open help* via the QB64PE Wiki
