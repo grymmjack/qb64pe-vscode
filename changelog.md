@@ -2,7 +2,7 @@
 
 All notable changes to the "QB64 PE" extension will be documented in this file.
 
-## 0.10.x (plan)
+## 0.10.7
 
 - Enhancements
   - **NEW: Intelligent Code Completion** - CompletionItemProvider with 500+ QB64PE keywords
@@ -15,9 +15,16 @@ All notable changes to the "QB64 PE" extension will be documented in this file.
     - Modern QB64PE code patterns using current best practices
     - Context-sensitive pattern suggestions
     - Sprite and animation framework templates
+  - Enhanced documentation with comprehensive completion provider guides
+  - Updated package description to highlight new completion features
+
+## 0.10.x (plan)
+
+- Enhancements
   - Modify`tasks.json` to support QB64 PE.
 
 ## 0.10.6
+
 - Enhancements
   - Modified to support QB64PE v4.x.x
 
