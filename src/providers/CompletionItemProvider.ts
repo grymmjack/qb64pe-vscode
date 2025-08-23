@@ -18,8 +18,8 @@ export class CompletionItemProvider implements vscode.CompletionItemProvider {
   private symbolParser: SymbolParser;
   private workspaceSymbols: QB64Symbol[] = [];
 
-  constructor() {
-    this.symbolParser = new SymbolParser();
+  constructor(symbolParser?: SymbolParser) {
+    this.symbolParser = symbolParser || new SymbolParser();
     this.initializeKeywords();
     this.buildCompletionItems();
     this.refreshWorkspaceSymbols();

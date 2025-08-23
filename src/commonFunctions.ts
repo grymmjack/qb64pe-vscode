@@ -4,7 +4,7 @@ import * as vscode from "vscode";
  * Gets a new vscode.DocumentSelector
  */
 export function getDocumentSelector(): vscode.DocumentSelector {
-	return { scheme: "file", language: "QB64PE" };
+  return { scheme: "file", language: "QB64PE" };
 }
 
 /**
@@ -12,21 +12,25 @@ export function getDocumentSelector(): vscode.DocumentSelector {
  * @returns The text selected in the current editor or the whole line if no text is selected.
  */
 export function getSelectedTextOrLineTest(): string {
-	let editor = vscode.window.activeTextEditor;
-	let retvalue = editor ? editor.document.getText(editor.selection) : "";
+  let editor = vscode.window.activeTextEditor;
+  let retvalue = editor ? editor.document.getText(editor.selection) : "";
 
-	if (retvalue.length < 1) {
-		retvalue = editor.document.lineAt(vscode.window.activeTextEditor.selection.active.line).text;
-	}
-	return retvalue;
+  if (retvalue.length < 1) {
+    retvalue = editor.document.lineAt(
+      vscode.window.activeTextEditor.selection.active.line
+    ).text;
+  }
+  return retvalue;
 }
 
 /**
  * Escapes RegExp text value.  Found at https://stackoverflow.com/questions/3115150/how-to-escape-regular-expression-special-characters-using-javascript
- * @param text 
- * @returns 
+ * @param text
+ * @returns
  */
-export function escapeRegExp(text: string) { return text.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&'); }
+export function escapeRegExp(text: string) {
+  return text.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&");
+}
 
 /**
  * Gets an absolute path from a relative path.
@@ -35,20 +39,19 @@ export function escapeRegExp(text: string) { return text.replace(/[-[\]{}()*+?.,
  * @returns can absolute path from a relative path.
  */
 export function getAbsolutePath(base: string, relative: string): string {
-	let work: string[] = base.split("/");
-	let relativeArray = relative.split("/");
-	work.pop(); // ignore the current file name (or no string)
-	// (ignore if "base" is the current folder without having slash in trail)
-	for (let i = 0; i < relativeArray.length; i++) {
-		if (relativeArray[i] == ".")
-			continue;
-		if (relativeArray[i] == "..") {
-			work.pop();
-		} else {
-			work.push(relativeArray[i]);
-		}
-	}
-	return work.join("/");
+  let work: string[] = base.split("/");
+  let relativeArray = relative.split("/");
+  work.pop(); // ignore the current file name (or no string)
+  // (ignore if "base" is the current folder without having slash in trail)
+  for (let i = 0; i < relativeArray.length; i++) {
+    if (relativeArray[i] == ".") continue;
+    if (relativeArray[i] == "..") {
+      work.pop();
+    } else {
+      work.push(relativeArray[i]);
+    }
+  }
+  return work.join("/");
 }
 
 /**
@@ -56,62 +59,68 @@ export function getAbsolutePath(base: string, relative: string): string {
  * @param match Match with the start and stop for the range.
  * @param lineNumber Line Number in the source file that range is for.
  * @param matchIndex The index in the match array to use.
- * @returns 
+ * @returns
  */
-export function createRange(match: RegExpMatchArray, lineNumber: number, matchIndex: number = 0) {
-	return new vscode.Range(
-		new vscode.Position(lineNumber, match.index),
-		new vscode.Position(lineNumber, match.index + match[matchIndex].length));
+export function createRange(
+  match: RegExpMatchArray,
+  lineNumber: number,
+  matchIndex: number = 0
+) {
+  return new vscode.Range(
+    new vscode.Position(lineNumber, match.index),
+    new vscode.Position(lineNumber, match.index + match[matchIndex].length)
+  );
 }
 
 /**
  * Gets the QB64PE word at the current cursor position in the current from the passed editor.
- * @param editor 
+ * @param editor
  * @returns The selected word/word under the cursor
  */
 export function getQB64Word(editor: vscode.TextEditor): string {
+  if (!editor) {
+    return "";
+  }
 
-	if (!editor) {
-		return "";
-	}
+  if (!editor.document) {
+    return "";
+  }
 
-	if (!editor.document) {
-		return "";
-	}
-
-	return getQB64WordFromDocument(editor.document, editor.selection.active);
+  return getQB64WordFromDocument(editor.document, editor.selection.active);
 }
 
 /**
  * * Gets the QB64PE word at the current position in the passed document
- * @param document 
- * @param position 
- * @returns 
+ * @param document
+ * @param position
+ * @returns
  */
-export function getQB64WordFromDocument(document: vscode.TextDocument, position: vscode.Position): string {
+export function getQB64WordFromDocument(
+  document: vscode.TextDocument,
+  position: vscode.Position
+): string {
+  const stop: string = " (+-=<>[{}]`);:.,%#`&!\t";
+  const lineOfCode = document.lineAt(position.line).text;
+  //const cursorPosition = position.character + 1;
+  const cursorPosition = position.character; // + 1;
+  let retvalue: string = "";
 
-	const stop: string = " (+-=<>[{}]`);:.,%#`&!_\t";
-	const lineOfCode = document.lineAt(position.line).text;
-	//const cursorPosition = position.character + 1;
-	const cursorPosition = position.character;// + 1;
-	let retvalue: string = "";
+  // Get the first part of the string
+  for (let i: number = cursorPosition - 1; i >= 0; i--) {
+    let currentChar = lineOfCode.substring(i - 1, i);
+    if (currentChar == "" || stop.indexOf(currentChar) > -1) {
+      break;
+    }
+    retvalue = currentChar + retvalue;
+  }
 
-	// Get the first part of the string
-	for (let i: number = cursorPosition - 1; i >= 0; i--) {
-		let currentChar = lineOfCode.substring(i - 1, i);
-		if (currentChar == "" || stop.indexOf(currentChar) > -1) {
-			break;
-		}
-		retvalue = currentChar + retvalue;
-	}
-
-	// Get the last part of the string
-	for (let i: number = cursorPosition; i <= lineOfCode.length; i++) {
-		let currentChar = lineOfCode.substring(i - 1, i);
-		if (currentChar == "" || stop.indexOf(currentChar) > -1) {
-			break;
-		}
-		retvalue = retvalue + currentChar;
-	}
-	return retvalue.replaceAll("'", "");
+  // Get the last part of the string
+  for (let i: number = cursorPosition; i <= lineOfCode.length; i++) {
+    let currentChar = lineOfCode.substring(i - 1, i);
+    if (currentChar == "" || stop.indexOf(currentChar) > -1) {
+      break;
+    }
+    retvalue = retvalue + currentChar;
+  }
+  return retvalue.replaceAll("'", "");
 }

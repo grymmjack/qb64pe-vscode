@@ -5,7 +5,7 @@ import { SymbolParser, QB64Symbol } from "./SymbolParser";
 
 export class SignatureHelpProvider implements vscode.SignatureHelpProvider {
   private outputChannel = logFunctions.getChannel(
-    logFunctions.channelType.completion
+    logFunctions.channelType.signatureHelp
   );
   private symbolParser: SymbolParser;
   private workspaceSymbols: QB64Symbol[] = [];

@@ -226,21 +226,16 @@ GameLoop
 PRINT "Game Over!"
 
 ' ============================================
-' TEST AREA FOR CONSTANT COMPLETION  
+' TEST AREA FOR HOVER FUNCTIONALITY
 ' ============================================
-' Try typing the following to test constant value display:
-' 1. Type "MAX" and press Ctrl+Space to see MAX_PLAYERS = 10
-' 2. Type "GAME" to see GAME_TITLE = "QB64PE Test Game" 
-' 3. Type "GRAV" to see GRAVITY = 9.81
-' 4. Type "DEBUG" to see DEBUG_MODE = 1
+' Try hovering over the following to test the new hover documentation:
+' 1. Hover over "MAX_PLAYERS" to see: CONST MAX_PLAYERS = 10
+' 2. Hover over "AddScore" to see function signature and parameters
+' 3. Hover over "PlayerType" to see type definition
+' 4. Hover over "InitializeGame" to see SUB documentation
+' 5. Hover over any variable like "currentPlayer" to see scope info
 '
-' The completion should now show:
-' CONST MAX_PLAYERS = 10
-' CONST GAME_TITLE = "QB64PE Test Game"  
-' CONST MAX_HEALTH = 100.0
-' CONST GRAVITY = 9.81
-' CONST DEFAULT_SPEED = 50
-' CONST DEBUG_MODE = 1
+' The hover should show the same rich documentation as completion!
 
 ' Test expressions using constants:
 ' IF DEBUG_MODE THEN

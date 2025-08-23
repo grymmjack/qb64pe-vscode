@@ -138,7 +138,7 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.languages.registerHoverProvider(
       documentSelector,
-      new HoverProvider()
+      new HoverProvider(symbolParser)
     )
   );
   context.subscriptions.push(
@@ -150,7 +150,7 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.languages.registerCompletionItemProvider(
       documentSelector,
-      new CompletionItemProvider(),
+      new CompletionItemProvider(symbolParser),
       ".",
       "$",
       "_"
@@ -159,7 +159,7 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.languages.registerInlineCompletionItemProvider(
       documentSelector,
-      new InlineCompletionItemProvider()
+      new InlineCompletionItemProvider(symbolParser)
     )
   );
   context.subscriptions.push(

@@ -63,6 +63,14 @@ const scriptChannel: any = vscode.window.createOutputChannel(
   "QB64PE: Script",
   "QB64PE"
 );
+const symbolParserChannel: any = vscode.window.createOutputChannel(
+  "QB64PE: Symbol Parser",
+  "QB64PE"
+);
+const signatureHelpChannel: any = vscode.window.createOutputChannel(
+  "QB64PE: Signature Help",
+  "QB64PE"
+);
 
 export enum channelType {
   help = 1,
@@ -80,6 +88,8 @@ export enum channelType {
   script = 13,
   completion = 14,
   inlineCompletion = 15,
+  symbolParser = 16,
+  signatureHelp = 17,
 }
 
 /**
@@ -132,6 +142,12 @@ export function getChannel(type: channelType) {
 
     case channelType.inlineCompletion:
       return inlineCompletionChannel;
+
+    case channelType.symbolParser:
+      return symbolParserChannel;
+
+    case channelType.signatureHelp:
+      return signatureHelpChannel;
 
     default:
       throw `Unknown channelType of ${type}`;

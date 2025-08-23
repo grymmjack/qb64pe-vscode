@@ -31,7 +31,7 @@ export class SymbolParser {
   private symbolCache = new Map<string, QB64Symbol[]>();
   private lastModified = new Map<string, number>();
   private outputChannel = logFunctions.getChannel(
-    logFunctions.channelType.completion
+    logFunctions.channelType.symbolParser
   );
 
   public async parseWorkspaceSymbols(

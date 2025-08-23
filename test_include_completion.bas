@@ -49,14 +49,25 @@ result = Lerp(0.0, 10.0, 0.5)
 PRINT "Lerp from 0 to 10 at 0.5: "; result
 
 ' ============================================
-' TEST AREA FOR SIGNATURE HELP AND COMPLETION
+' TEST AREA FOR HOVER AND COMPLETION FEATURES
 ' ============================================
-' Try typing the following to test the new features:
+' Try the following to test both completion and hover:
+' 
+' COMPLETION TESTS:
 ' 1. Type "Dis" and press Ctrl+Space to see Distance function completion
 ' 2. Type "Distance(" to see parameter hints with descriptions  
 ' 3. Type "Clamp(" to see multi-parameter signature help
 ' 4. Type "Cal" and see CalculateDamage from main file
 ' 5. Type "CalculateDamage(" to see all parameter descriptions
+'
+' HOVER TESTS:
+' 1. Hover over "Distance" to see function documentation
+' 2. Hover over "PI" to see: CONST PI = 3.14159265358979323846
+' 3. Hover over "Vector2D" to see type definition
+' 4. Hover over "NormalizeVector" to see SUB with parameter docs
+' 5. Hover over "E" to see: CONST E = 2.71828182845904523536
+'
+' The hover should show the same beautiful documentation as completion!
 
 ' Test calls - try adding these and see signature help:
 ' Distance(

@@ -16,8 +16,8 @@ export class InlineCompletionItemProvider
   private codePatterns: Map<string, string[]> = new Map();
   private symbolParser: SymbolParser;
 
-  constructor() {
-    this.symbolParser = new SymbolParser();
+  constructor(symbolParser?: SymbolParser) {
+    this.symbolParser = symbolParser || new SymbolParser();
     this.initializeCodePatterns();
   }
 
