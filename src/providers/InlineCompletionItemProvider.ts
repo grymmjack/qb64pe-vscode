@@ -5,6 +5,7 @@ import * as path from "path";
 import * as commonFunctions from "../commonFunctions";
 import * as logFunctions from "../logFunctions";
 import { TokenInfo } from "../TokenInfo";
+import { SymbolParser, QB64Symbol } from "./SymbolParser";
 
 export class InlineCompletionItemProvider
   implements vscode.InlineCompletionItemProvider
@@ -13,8 +14,10 @@ export class InlineCompletionItemProvider
     logFunctions.channelType.inlineCompletion
   );
   private codePatterns: Map<string, string[]> = new Map();
+  private symbolParser: SymbolParser;
 
   constructor() {
+    this.symbolParser = new SymbolParser();
     this.initializeCodePatterns();
   }
 
@@ -279,6 +282,34 @@ export class InlineCompletionItemProvider
       // Analyze surrounding context
       const context = this.analyzeContext(document, position);
 
+      // Get user symbols for context-aware suggestions
+      const documentSymbols = await this.symbolParser.parseDocumentSymbols(
+        document
+      );
+      const includeSymbols = await this.symbolParser.parseIncludeFiles(
+        document
+      );
+      const allUserSymbols = [...documentSymbols, ...includeSymbols];
+      const scopedSymbols = this.symbolParser.getSymbolsInScope(
+        document,
+        position,
+        allUserSymbols
+      );
+
+      // Add context-aware patterns based on available symbols
+      const contextPatterns = this.getContextAwarePatterns(
+        scopedSymbols,
+        trimmedLine
+      );
+      for (const pattern of contextPatterns) {
+        completions.push(
+          new vscode.InlineCompletionItem(
+            pattern,
+            new vscode.Range(position, position)
+          )
+        );
+      }
+
       // Suggest complementary statements
       if (context.isInLoop && trimmedLine === "") {
         completions.push(
@@ -314,10 +345,24 @@ export class InlineCompletionItemProvider
         );
       }
 
-      // Variable assignments based on declarations
-      if (context.variables.length > 0 && trimmedLine === "") {
-        for (const variable of context.variables.slice(0, 5)) {
+      // Variable assignments based on user-defined variables
+      const userVariables = scopedSymbols.filter((s) => s.type === "VARIABLE");
+      if (userVariables.length > 0 && trimmedLine === "") {
+        for (const variable of userVariables.slice(0, 5)) {
           // Limit to 5 suggestions
+          completions.push(
+            new vscode.InlineCompletionItem(
+              `${variable.name} = `,
+              new vscode.Range(position, position)
+            )
+          );
+        }
+      }
+
+      // Legacy variable assignments based on declarations
+      if (context.variables.length > 0 && trimmedLine === "") {
+        for (const variable of context.variables.slice(0, 3)) {
+          // Limit to 3 to make room for user variables
           completions.push(
             new vscode.InlineCompletionItem(
               `${variable.name} = `,
@@ -334,6 +379,73 @@ export class InlineCompletionItemProvider
     }
 
     return completions;
+  }
+
+  private getContextAwarePatterns(
+    symbols: QB64Symbol[],
+    trigger: string
+  ): string[] {
+    const patterns: string[] = [];
+
+    // Suggest SUB calls based on available SUBs
+    if (
+      trigger.toLowerCase().includes("call") ||
+      trigger.toLowerCase().includes("sub") ||
+      trigger === ""
+    ) {
+      const subs = symbols.filter((s) => s.type === "SUB");
+      for (const sub of subs.slice(0, 3)) {
+        // Limit to 3 suggestions
+        if (sub.parameters && sub.parameters.length > 0) {
+          const params = sub.parameters
+            .map((p, i) => `\${${i + 1}:${p.name}}`)
+            .join(", ");
+          patterns.push(`${sub.name}(${params})`);
+        } else {
+          patterns.push(`${sub.name}`);
+        }
+      }
+    }
+
+    // Suggest FUNCTION calls
+    if (
+      trigger.toLowerCase().includes("func") ||
+      trigger.toLowerCase().includes("=") ||
+      trigger === ""
+    ) {
+      const functions = symbols.filter((s) => s.type === "FUNCTION");
+      for (const func of functions.slice(0, 3)) {
+        if (func.parameters && func.parameters.length > 0) {
+          const params = func.parameters
+            .map((p, i) => `\${${i + 1}:${p.name}}`)
+            .join(", ");
+          patterns.push(`${func.name}(${params})`);
+        } else {
+          patterns.push(`${func.name}`);
+        }
+      }
+    }
+
+    // Suggest TYPE declarations
+    if (
+      trigger.toLowerCase().includes("dim") ||
+      trigger.toLowerCase().includes("as")
+    ) {
+      const types = symbols.filter((s) => s.type === "TYPE");
+      for (const type of types.slice(0, 3)) {
+        patterns.push(`DIM \${1:variable} AS ${type.name}`);
+      }
+    }
+
+    // Suggest variable assignments
+    if (trigger.toLowerCase().includes("=") || trigger === "") {
+      const variables = symbols.filter((s) => s.type === "VARIABLE");
+      for (const variable of variables.slice(0, 3)) {
+        patterns.push(`${variable.name} = \${1:value}`);
+      }
+    }
+
+    return patterns;
   }
 
   private getIdiomCompletions(

@@ -5,6 +5,7 @@ import * as path from "path";
 import * as commonFunctions from "../commonFunctions";
 import * as logFunctions from "../logFunctions";
 import { TokenInfo } from "../TokenInfo";
+import { SymbolParser, QB64Symbol } from "./SymbolParser";
 
 export class CompletionItemProvider implements vscode.CompletionItemProvider {
   private outputChannel = logFunctions.getChannel(
@@ -14,10 +15,21 @@ export class CompletionItemProvider implements vscode.CompletionItemProvider {
   private keywordCompletions: vscode.CompletionItem[] = [];
   private functionCompletions: vscode.CompletionItem[] = [];
   private statementCompletions: vscode.CompletionItem[] = [];
+  private symbolParser: SymbolParser;
+  private workspaceSymbols: QB64Symbol[] = [];
 
   constructor() {
+    this.symbolParser = new SymbolParser();
     this.initializeKeywords();
     this.buildCompletionItems();
+    this.refreshWorkspaceSymbols();
+
+    // Watch for file changes to update symbols
+    vscode.workspace.onDidSaveTextDocument(() =>
+      this.refreshWorkspaceSymbols()
+    );
+    vscode.workspace.onDidCreateFiles(() => this.refreshWorkspaceSymbols());
+    vscode.workspace.onDidDeleteFiles(() => this.refreshWorkspaceSymbols());
   }
 
   private initializeKeywords() {
@@ -1151,12 +1163,12 @@ export class CompletionItemProvider implements vscode.CompletionItemProvider {
     }
   }
 
-  provideCompletionItems(
+  async provideCompletionItems(
     document: vscode.TextDocument,
     position: vscode.Position,
     token: vscode.CancellationToken,
     context: vscode.CompletionContext
-  ): vscode.ProviderResult<vscode.CompletionItem[] | vscode.CompletionList> {
+  ): Promise<vscode.CompletionItem[] | vscode.CompletionList> {
     try {
       // Get the current line and word being typed
       const lineText = document.lineAt(position).text;
@@ -1176,7 +1188,15 @@ export class CompletionItemProvider implements vscode.CompletionItemProvider {
       completions = completions.concat(this.functionCompletions);
       completions = completions.concat(this.statementCompletions);
 
-      // Add local variables and user-defined functions/subs
+      // Add user-defined symbols
+      const userSymbols = await this.getUserDefinedCompletions(
+        document,
+        position,
+        word
+      );
+      completions = completions.concat(userSymbols);
+
+      // Add local variables and user-defined functions/subs (legacy method for compatibility)
       const localCompletions = this.getLocalCompletions(document);
       completions = completions.concat(localCompletions);
 
@@ -1187,6 +1207,9 @@ export class CompletionItemProvider implements vscode.CompletionItemProvider {
         );
       }
 
+      // Remove duplicates (prefer user symbols over built-in)
+      completions = this.removeDuplicateCompletions(completions);
+
       // Sort by relevance (keyword type and alphabetically)
       completions.sort((a, b) => {
         // Prioritize exact matches
@@ -1195,20 +1218,30 @@ export class CompletionItemProvider implements vscode.CompletionItemProvider {
         if (aExact && !bExact) return -1;
         if (!aExact && bExact) return 1;
 
-        // Then by kind (functions first, then statements, then keywords)
-        if (a.kind !== b.kind) {
-          const kindOrder = [
-            vscode.CompletionItemKind.Function,
-            vscode.CompletionItemKind.Keyword,
-            vscode.CompletionItemKind.Variable,
-            vscode.CompletionItemKind.Snippet,
-          ];
-          return kindOrder.indexOf(a.kind!) - kindOrder.indexOf(b.kind!);
-        }
+        // Then by kind priority (User-defined > Functions > Keywords)
+        const kindPriority = {
+          [vscode.CompletionItemKind.Method]: 1, // SUBs
+          [vscode.CompletionItemKind.Function]: 2, // FUNCTIONs
+          [vscode.CompletionItemKind.Variable]: 3, // Variables
+          [vscode.CompletionItemKind.Struct]: 4, // TYPEs
+          [vscode.CompletionItemKind.Constant]: 5, // CONSTs
+          [vscode.CompletionItemKind.Keyword]: 6, // Built-in keywords
+          [vscode.CompletionItemKind.Snippet]: 7, // Snippets
+        };
+
+        const aPriority = kindPriority[a.kind!] || 8;
+        const bPriority = kindPriority[b.kind!] || 8;
+
+        if (aPriority !== bPriority) return aPriority - bPriority;
 
         // Finally alphabetically
         return a.label.toString().localeCompare(b.label.toString());
       });
+
+      logFunctions.writeLine(
+        `Returning ${completions.length} completions`,
+        this.outputChannel
+      );
 
       return completions;
     } catch (error) {
@@ -1304,5 +1337,235 @@ export class CompletionItemProvider implements vscode.CompletionItemProvider {
     }
 
     return item;
+  }
+
+  private async getUserDefinedCompletions(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+    prefix: string
+  ): Promise<vscode.CompletionItem[]> {
+    const completions: vscode.CompletionItem[] = [];
+
+    try {
+      // Get document symbols (local scope)
+      const documentSymbols = await this.symbolParser.parseDocumentSymbols(
+        document
+      );
+
+      // Get include file symbols
+      const includeSymbols = await this.symbolParser.parseIncludeFiles(
+        document
+      );
+
+      // Get workspace symbols (global scope)
+      const allSymbols = [
+        ...documentSymbols,
+        ...includeSymbols,
+        ...this.workspaceSymbols,
+      ];
+
+      // Get symbols that are in scope at current position
+      const scopedSymbols = this.symbolParser.getSymbolsInScope(
+        document,
+        position,
+        allSymbols
+      );
+
+      // Filter symbols based on prefix
+      const filteredSymbols = scopedSymbols.filter((symbol) =>
+        symbol.name.toLowerCase().startsWith(prefix.toLowerCase())
+      );
+
+      // Remove duplicates (prefer local over global)
+      const uniqueSymbols = this.removeDuplicateSymbols(filteredSymbols);
+
+      for (const symbol of uniqueSymbols) {
+        const completion = this.createCompletionFromSymbol(symbol, document);
+        if (completion) {
+          completions.push(completion);
+        }
+      }
+    } catch (error) {
+      logFunctions.writeLine(
+        `Error getting user-defined completions: ${error}`,
+        this.outputChannel
+      );
+    }
+
+    return completions;
+  }
+
+  private createCompletionFromSymbol(
+    symbol: QB64Symbol,
+    document: vscode.TextDocument
+  ): vscode.CompletionItem | null {
+    const completion = new vscode.CompletionItem(symbol.name);
+
+    switch (symbol.type) {
+      case "SUB":
+        completion.kind = vscode.CompletionItemKind.Method;
+        completion.detail = this.formatSubSignature(symbol);
+        completion.insertText = this.createSubSnippet(symbol);
+        completion.documentation = new vscode.MarkdownString(
+          `**SUB** ${symbol.name}\n\n${
+            symbol.documentation || "User-defined subroutine"
+          }\n\n*File: ${path.basename(symbol.file)}*`
+        );
+        break;
+
+      case "FUNCTION":
+        completion.kind = vscode.CompletionItemKind.Function;
+        completion.detail = this.formatFunctionSignature(symbol);
+        completion.insertText = this.createFunctionSnippet(symbol);
+        completion.documentation = new vscode.MarkdownString(
+          `**FUNCTION** ${symbol.name}${
+            symbol.dataType ? ` AS ${symbol.dataType}` : ""
+          }\n\n${
+            symbol.documentation || "User-defined function"
+          }\n\n*File: ${path.basename(symbol.file)}*`
+        );
+        break;
+
+      case "VARIABLE":
+        completion.kind = vscode.CompletionItemKind.Variable;
+        completion.detail = `${
+          symbol.dataType || "VARIANT"
+        } (${symbol.scope.toLowerCase()}${symbol.isArray ? ", array" : ""}${
+          symbol.isShared ? ", shared" : ""
+        })`;
+        completion.documentation = new vscode.MarkdownString(
+          `**VARIABLE** ${symbol.name}${
+            symbol.dataType ? ` AS ${symbol.dataType}` : ""
+          }${symbol.isArray ? " (array)" : ""}\n\n*Scope: ${
+            symbol.scope
+          }*\n\n*File: ${path.basename(symbol.file)}*`
+        );
+        break;
+
+      case "TYPE":
+        completion.kind = vscode.CompletionItemKind.Struct;
+        completion.detail = "User-defined type";
+        completion.documentation = new vscode.MarkdownString(
+          `**TYPE** ${symbol.name}\n\n${
+            symbol.documentation || "User-defined type"
+          }\n\n*File: ${path.basename(symbol.file)}*`
+        );
+        break;
+
+      case "CONST":
+        completion.kind = vscode.CompletionItemKind.Constant;
+        completion.detail = "User-defined constant";
+        completion.documentation = new vscode.MarkdownString(
+          `**CONST** ${symbol.name}\n\n${
+            symbol.documentation || "User-defined constant"
+          }\n\n*File: ${path.basename(symbol.file)}*`
+        );
+        break;
+
+      default:
+        return null;
+    }
+
+    // Add scope indicator for sorting
+    if (symbol.scope === "LOCAL") {
+      completion.sortText = "0_" + symbol.name; // Higher priority
+    } else if (symbol.scope === "MODULE") {
+      completion.sortText = "1_" + symbol.name;
+    } else {
+      completion.sortText = "2_" + symbol.name; // Lower priority
+    }
+
+    return completion;
+  }
+
+  private formatSubSignature(symbol: QB64Symbol): string {
+    const params =
+      symbol.parameters
+        ?.map((p) => `${p.name}${p.type ? ` AS ${p.type}` : ""}`)
+        .join(", ") || "";
+
+    return `SUB ${symbol.name}(${params})`;
+  }
+
+  private formatFunctionSignature(symbol: QB64Symbol): string {
+    const params =
+      symbol.parameters
+        ?.map((p) => `${p.name}${p.type ? ` AS ${p.type}` : ""}`)
+        .join(", ") || "";
+
+    return `FUNCTION ${symbol.name}(${params})${
+      symbol.dataType ? ` AS ${symbol.dataType}` : ""
+    }`;
+  }
+
+  private createSubSnippet(symbol: QB64Symbol): vscode.SnippetString {
+    if (!symbol.parameters || symbol.parameters.length === 0) {
+      return new vscode.SnippetString(`${symbol.name}`);
+    }
+
+    const params = symbol.parameters
+      .map((p, i) => `\${${i + 1}:${p.name}}`)
+      .join(", ");
+    return new vscode.SnippetString(`${symbol.name}(${params})`);
+  }
+
+  private createFunctionSnippet(symbol: QB64Symbol): vscode.SnippetString {
+    if (!symbol.parameters || symbol.parameters.length === 0) {
+      return new vscode.SnippetString(`${symbol.name}`);
+    }
+
+    const params = symbol.parameters
+      .map((p, i) => `\${${i + 1}:${p.name}}`)
+      .join(", ");
+    return new vscode.SnippetString(`${symbol.name}(${params})`);
+  }
+
+  private removeDuplicateSymbols(symbols: QB64Symbol[]): QB64Symbol[] {
+    const symbolMap = new Map<string, QB64Symbol>();
+
+    // Sort by scope priority (LOCAL > MODULE > GLOBAL)
+    const sortedSymbols = symbols.sort((a, b) => {
+      const scopePriority = { LOCAL: 0, MODULE: 1, GLOBAL: 2 };
+      return scopePriority[a.scope] - scopePriority[b.scope];
+    });
+
+    for (const symbol of sortedSymbols) {
+      const key = symbol.name.toLowerCase();
+      if (!symbolMap.has(key)) {
+        symbolMap.set(key, symbol);
+      }
+    }
+
+    return Array.from(symbolMap.values());
+  }
+
+  private removeDuplicateCompletions(
+    completions: vscode.CompletionItem[]
+  ): vscode.CompletionItem[] {
+    const seen = new Set<string>();
+    return completions.filter((item) => {
+      const key = item.label.toString().toLowerCase();
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+  }
+
+  private async refreshWorkspaceSymbols(): Promise<void> {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders) return;
+
+    this.workspaceSymbols = [];
+    for (const folder of workspaceFolders) {
+      const symbols = await this.symbolParser.parseWorkspaceSymbols(folder);
+      this.workspaceSymbols.push(...symbols);
+    }
+
+    logFunctions.writeLine(
+      `Refreshed workspace symbols: ${this.workspaceSymbols.length} total`,
+      this.outputChannel
+    );
   }
 }
