@@ -13,8 +13,10 @@ export interface QB64Symbol {
   line: number;
   file: string;
   documentation?: string;
+  parameterDescriptions?: Map<string, string>; // Parameter name -> description
   isArray?: boolean;
   isShared?: boolean;
+  value?: string; // For constants - the actual value
 }
 
 export interface Parameter {
@@ -22,6 +24,7 @@ export interface Parameter {
   type?: string;
   optional?: boolean;
   byRef?: boolean;
+  description?: string; // Parameter-specific documentation
 }
 
 export class SymbolParser {
@@ -147,6 +150,12 @@ export class SymbolParser {
         const paramString = subMatch[2];
         const isStatic = !!subMatch[3];
         const parameters = this.parseParameters(paramString);
+        const documentation = this.extractDocumentation(lines, i);
+        const parameterDescriptions = this.extractParameterDocumentation(
+          lines,
+          i,
+          parameters
+        );
 
         symbols.push({
           name,
@@ -155,7 +164,8 @@ export class SymbolParser {
           scope: isStatic ? "LOCAL" : "MODULE",
           line: lineNumber,
           file: filePath,
-          documentation: this.extractDocumentation(lines, i),
+          documentation,
+          parameterDescriptions,
         });
         continue;
       }
@@ -170,6 +180,12 @@ export class SymbolParser {
         const returnType = funcMatch[3];
         const isStatic = !!funcMatch[4];
         const parameters = this.parseParameters(paramString);
+        const documentation = this.extractDocumentation(lines, i);
+        const parameterDescriptions = this.extractParameterDocumentation(
+          lines,
+          i,
+          parameters
+        );
 
         symbols.push({
           name,
@@ -179,7 +195,8 @@ export class SymbolParser {
           scope: isStatic ? "LOCAL" : "MODULE",
           line: lineNumber,
           file: filePath,
-          documentation: this.extractDocumentation(lines, i),
+          documentation,
+          parameterDescriptions,
         });
         continue;
       }
@@ -239,6 +256,7 @@ export class SymbolParser {
       );
       if (constMatch) {
         const name = constMatch[1];
+        const value = constMatch[2].trim();
         symbols.push({
           name,
           type: "CONST",
@@ -246,6 +264,7 @@ export class SymbolParser {
           line: lineNumber,
           file: filePath,
           documentation: this.extractDocumentation(lines, i),
+          value: value,
         });
         continue;
       }
@@ -319,7 +338,14 @@ export class SymbolParser {
     for (let i = currentIndex - 1; i >= 0; i--) {
       const line = lines[i].trim();
       if (line.startsWith("'")) {
-        docLines.unshift(line.substring(1).trim());
+        // Clean the comment line by removing all leading apostrophes and whitespace
+        const cleanLine = this.cleanCommentLine(line);
+        if (cleanLine.length > 0) {
+          // Skip @param lines - they're used for parameter documentation, not main description
+          if (!cleanLine.match(/^\s*@param\s+/i)) {
+            docLines.unshift(cleanLine);
+          }
+        }
       } else if (line === "") {
         continue; // Skip empty lines
       } else {
@@ -328,6 +354,86 @@ export class SymbolParser {
     }
 
     return docLines.length > 0 ? docLines.join("\n") : "";
+  }
+
+  private cleanCommentLine(line: string): string {
+    // Remove all leading apostrophes and whitespace
+    // This handles cases like: ', '', ' text, '' text, etc.
+    let cleaned = line;
+
+    // Remove leading apostrophes (one or more)
+    cleaned = cleaned.replace(/^'+/, "");
+
+    // Remove leading whitespace
+    cleaned = cleaned.replace(/^\s+/, "");
+
+    return cleaned;
+  }
+
+  private extractParameterDocumentation(
+    lines: string[],
+    currentIndex: number,
+    parameters: Parameter[]
+  ): Map<string, string> {
+    const paramDescriptions = new Map<string, string>();
+    const docLines: string[] = [];
+
+    // Look backwards for comments above the declaration
+    for (let i = currentIndex - 1; i >= 0; i--) {
+      const line = lines[i].trim();
+      if (line.startsWith("'")) {
+        // Clean the comment line by removing all leading apostrophes and whitespace
+        const cleanLine = this.cleanCommentLine(line);
+        if (cleanLine.length > 0) {
+          docLines.unshift(cleanLine);
+        }
+      } else if (line === "") {
+        continue; // Skip empty lines
+      } else {
+        break; // Stop at first non-comment, non-empty line
+      }
+    }
+
+    // Parse parameter descriptions from documentation
+    for (const docLine of docLines) {
+      // Look for @param paramName description patterns
+      const paramMatch = docLine.match(
+        /^\s*@param\s+([A-Za-z_][A-Za-z0-9_]*)\s+(.+)$/i
+      );
+      if (paramMatch) {
+        const paramName = paramMatch[1];
+        const description = paramMatch[2];
+        paramDescriptions.set(paramName.toLowerCase(), description);
+        continue;
+      }
+
+      // Look for 'paramName - description' or 'paramName: description' patterns
+      const colonMatch = docLine.match(
+        /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*[-:]\s*(.+)$/
+      );
+      if (colonMatch) {
+        const paramName = colonMatch[1];
+        const description = colonMatch[2];
+        // Only add if this is actually a parameter name
+        if (
+          parameters.some(
+            (p) => p.name.toLowerCase() === paramName.toLowerCase()
+          )
+        ) {
+          paramDescriptions.set(paramName.toLowerCase(), description);
+        }
+      }
+    }
+
+    // Update parameter objects with descriptions
+    for (const param of parameters) {
+      const description = paramDescriptions.get(param.name.toLowerCase());
+      if (description) {
+        param.description = description;
+      }
+    }
+
+    return paramDescriptions;
   }
 
   public async parseIncludeFiles(

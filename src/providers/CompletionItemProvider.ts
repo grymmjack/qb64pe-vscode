@@ -1406,24 +1406,14 @@ export class CompletionItemProvider implements vscode.CompletionItemProvider {
         completion.kind = vscode.CompletionItemKind.Method;
         completion.detail = this.formatSubSignature(symbol);
         completion.insertText = this.createSubSnippet(symbol);
-        completion.documentation = new vscode.MarkdownString(
-          `**SUB** ${symbol.name}\n\n${
-            symbol.documentation || "User-defined subroutine"
-          }\n\n*File: ${path.basename(symbol.file)}*`
-        );
+        completion.documentation = this.createRichDocumentation(symbol);
         break;
 
       case "FUNCTION":
         completion.kind = vscode.CompletionItemKind.Function;
         completion.detail = this.formatFunctionSignature(symbol);
         completion.insertText = this.createFunctionSnippet(symbol);
-        completion.documentation = new vscode.MarkdownString(
-          `**FUNCTION** ${symbol.name}${
-            symbol.dataType ? ` AS ${symbol.dataType}` : ""
-          }\n\n${
-            symbol.documentation || "User-defined function"
-          }\n\n*File: ${path.basename(symbol.file)}*`
-        );
+        completion.documentation = this.createRichDocumentation(symbol);
         break;
 
       case "VARIABLE":
@@ -1454,9 +1444,13 @@ export class CompletionItemProvider implements vscode.CompletionItemProvider {
 
       case "CONST":
         completion.kind = vscode.CompletionItemKind.Constant;
-        completion.detail = "User-defined constant";
+        completion.detail = symbol.value
+          ? `CONST ${symbol.name} = ${symbol.value}`
+          : "User-defined constant";
         completion.documentation = new vscode.MarkdownString(
-          `**CONST** ${symbol.name}\n\n${
+          `**CONST** ${symbol.name}${
+            symbol.value ? ` = ${symbol.value}` : ""
+          }\n\n${
             symbol.documentation || "User-defined constant"
           }\n\n*File: ${path.basename(symbol.file)}*`
         );
@@ -1567,5 +1561,59 @@ export class CompletionItemProvider implements vscode.CompletionItemProvider {
       `Refreshed workspace symbols: ${this.workspaceSymbols.length} total`,
       this.outputChannel
     );
+  }
+
+  private createRichDocumentation(symbol: QB64Symbol): vscode.MarkdownString {
+    const docParts: string[] = [];
+
+    // Add symbol header
+    if (symbol.type === "SUB") {
+      docParts.push(`**SUB** ${symbol.name}`);
+    } else if (symbol.type === "FUNCTION") {
+      docParts.push(
+        `**FUNCTION** ${symbol.name}${
+          symbol.dataType ? ` AS ${symbol.dataType}` : ""
+        }`
+      );
+    } else if (symbol.type === "CONST") {
+      docParts.push(
+        `**CONST** ${symbol.name}${symbol.value ? ` = ${symbol.value}` : ""}`
+      );
+    }
+
+    // Add main documentation
+    if (symbol.documentation) {
+      docParts.push(symbol.documentation);
+    } else {
+      docParts.push(`User-defined ${symbol.type.toLowerCase()}`);
+    }
+
+    // Add parameter information
+    if (symbol.parameters && symbol.parameters.length > 0) {
+      docParts.push("**Parameters:**");
+      for (const param of symbol.parameters) {
+        let paramDoc = `- \`${param.name}\``;
+        if (param.type) {
+          paramDoc += ` (${param.type})`;
+        }
+        if (param.byRef !== undefined) {
+          paramDoc += param.byRef ? " - by reference" : " - by value";
+        }
+        if (param.description) {
+          paramDoc += `: ${param.description}`;
+        }
+        docParts.push(paramDoc);
+      }
+    }
+
+    // Add return type for functions
+    if (symbol.type === "FUNCTION" && symbol.dataType) {
+      docParts.push(`**Returns:** ${symbol.dataType}`);
+    }
+
+    // Add file location
+    docParts.push(`*File: ${path.basename(symbol.file)}*`);
+
+    return new vscode.MarkdownString(docParts.join("\n\n"));
   }
 }

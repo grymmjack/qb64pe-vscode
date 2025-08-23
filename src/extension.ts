@@ -19,6 +19,8 @@ import { DocumentFormattingEditProvider } from "./providers/DocumentFormattingEd
 import { HoverProvider } from "./providers/HoverProvider";
 import { CompletionItemProvider } from "./providers/CompletionItemProvider";
 import { InlineCompletionItemProvider } from "./providers/InlineCompletionItemProvider";
+import { SignatureHelpProvider } from "./providers/SignatureHelpProvider";
+import { SymbolParser } from "./providers/SymbolParser";
 import { TodoTreeProvider } from "./TodoTreeProvider";
 
 // To switch to debug mode the scripts in the package.json need to be changed.
@@ -112,6 +114,9 @@ export async function activate(context: vscode.ExtensionContext) {
   );
 
   // Register Providers here
+  // Create shared symbol parser for enhanced completion providers
+  const symbolParser = new SymbolParser();
+
   context.subscriptions.push(
     vscode.languages.registerReferenceProvider(
       commonFunctions.getDocumentSelector(),
@@ -155,6 +160,14 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.languages.registerInlineCompletionItemProvider(
       documentSelector,
       new InlineCompletionItemProvider()
+    )
+  );
+  context.subscriptions.push(
+    vscode.languages.registerSignatureHelpProvider(
+      documentSelector,
+      new SignatureHelpProvider(symbolParser),
+      "(",
+      ","
     )
   );
 

@@ -48,4 +48,19 @@ PRINT "Clamped 150 to 0-100 range: "; result
 result = Lerp(0.0, 10.0, 0.5)
 PRINT "Lerp from 0 to 10 at 0.5: "; result
 
+' ============================================
+' TEST AREA FOR SIGNATURE HELP AND COMPLETION
+' ============================================
+' Try typing the following to test the new features:
+' 1. Type "Dis" and press Ctrl+Space to see Distance function completion
+' 2. Type "Distance(" to see parameter hints with descriptions  
+' 3. Type "Clamp(" to see multi-parameter signature help
+' 4. Type "Cal" and see CalculateDamage from main file
+' 5. Type "CalculateDamage(" to see all parameter descriptions
+
+' Test calls - try adding these and see signature help:
+' Distance(
+' Clamp(
+' CalculateDamage(
+
 END
