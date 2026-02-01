@@ -2,6 +2,11 @@
 
 All notable changes to the "QB64 PE" extension will be documented in this file.
 
+## 0.10.9 (skipped .8 somehow - _shrug_)
+
+- Enhancements
+  - Made keyword help lookup for hover provider case insensitive.
+
 ## 0.10.7
 
 - Enhancements
