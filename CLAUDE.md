@@ -5,70 +5,89 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 A **VS Code language extension** for QB64PE (Phoenix Edition), a modern QBasic. It adds
-completion, hover/help, symbol navigation, formatting, linting, and F5-style build/run for
-`.bas`, `.bi`, `.bm`, and `.inc` files. It is not a compiler — it drives the user's installed
-QB64PE compiler for building and linting. Published to open-vsx.org as `grymmjack/qb64pe`.
+completion, hover/help, go-to-definition, references, rename, outline, folding, semantic
+highlighting, formatting, linting, and F5-style build/run for `.bas`, `.bi`, `.bm`, and `.inc`
+files. It is not a compiler — it drives the user's installed QB64PE compiler for building and
+linting. Published to open-vsx.org as `grymmjack/qb64pe`.
 
 ## Commands
 
 ```bash
 npm run esbuild          # Dev build → out/main.js (with sourcemap). This is the entry point (package.json "main").
 npm run esbuild-watch    # Rebuild on change while developing
-npm run compile          # tsc type-check only (no bundle emitted for the extension)
+npm run compile          # tsc: type-checks everything and emits out/ (tests run from there)
+npm test                 # tsc, then mocha over out/test/**/*.test.js (the vscode-free core)
+npx mocha out/test/core/parser.test.js          # one test file (after npm run compile)
+npx mocha out/test/core/queries.test.js -g "member"   # one test by name
 npx vsce package         # Produce the installable .vsix
 ```
 
 - **Run/debug the extension**: press F5 in VS Code (uses `.vscode/launch.json`) to launch an
-  Extension Development Host. The `build` task in `.vscode/tasks.json` chains changelog → esbuild → vsce.
-- **Tests**: `@vscode/test-electron` and `mocha` are configured and `pretest` runs `compile`, but
-  there is currently no `test/` directory or `test` script — there is no test suite to run.
+  Extension Development Host.
+- **Tests** cover `src/core` only (it has no `vscode` dependency). Fixtures live in
+  `test/fixtures/` (see its README: each file targets one syntax area). `corpus.test.ts`
+  parses every `.bas/.bi/.bm` in a QB64PE source checkout at `../qb64pe` (or `$QB64PE_SRC`)
+  as a crash detector and is skipped when absent.
+- Node 26+ needs mocha ≥ 11 (older mocha's yargs crashes) — already pinned.
 
 ## Architecture
 
-`src/extension.ts` `activate()` is the single wiring point. It does three things:
-registers **commands** (`extension.*`, declared in `package.json` `contributes.commands`/`keybindings`),
-registers **language providers** against the `QB64PE` document selector (see `commonFunctions.getDocumentSelector`),
-and sets up decorations, git-ignore creation, and the TODO tree view.
+Two layers:
 
-**Language providers** (`src/providers/`) implement VS Code's language-feature interfaces. They
-share one `SymbolParser` instance created in `activate()`:
-- `CompletionItemProvider` — autocomplete. The **500+ built-in keyword list is hardcoded as an
-  array here** (~`this.keywords`); this is the place to edit the language keyword set, *not* the help files.
-- `InlineCompletionItemProvider` — multi-line code templates (game loops, graphics setup, etc.).
-- `HoverProvider`, `SignatureHelpProvider` — use `SymbolParser` + `TokenInfo` for docs.
-- `DefinitionProvider`, `ReferenceProvider`, `DocumentSymbolProvider` — navigation over parsed symbols.
-- `DocumentFormattingEditProvider` — keyword casing per the `qb64pe.formatMode` setting.
+1. **`src/core/` — vscode-free engine** (unit-tested, plain Node):
+   - `lexer.ts` — `scanLine()` masks strings/comments (same-length mask so regex columns map
+     to source), finds statement-separating `:`, keeps metacommand lines (`$CONSOLE:ONLY`,
+     `'$INCLUDE:'x'`) whole; `identifierAt()` is sigil-aware (`count%`, `name$`, `x~&&`).
+     Every other module goes through it — nothing should regex raw lines for code.
+   - `parser.ts` — `parseFile(text)` → symbols + `$INCLUDE` directives. Joins `_`
+     continuations into logical lines, splits `:` statements, matches anchored patterns for
+     SUB/FUNCTION (+`endLine`), TYPE (+`members` as `FIELD`), DIM/REDIM/STATIC/COMMON lists,
+     CONST lists, labels, DECLARE LIBRARY (`isExternal`), implicit variables (first
+     assignment / FOR, `isImplicit`). Still a pattern matcher, not a grammar.
+   - `symbols.ts` — the `QB64Symbol` model (type, scope LOCAL/MODULE/GLOBAL, line/endLine,
+     file, dataType, parameters, members, flags).
+   - `index.ts` — `SymbolIndex`: all files' symbols + lines, name maps (exact and
+     sigil-stripped), and the `$INCLUDE` graph (`includesOf`/`includedByOf`, `closure`,
+     `rootsOf`, `unitOf` = every file compiled into the same program). Incremental
+     `setFile`/`removeFile`/`loadMany`; include resolution and file loading are injected.
+   - `queries.ts` — the language-server brain: `resolveAt` (scope precedence: TYPE members →
+     FUNCTION return name → parameters → locals → this file → include closure → rest of unit
+     → sigil-insensitive routine fallback → workspace), member chains (`a.b.c`),
+     `findDefinition`, `findOccurrences` (re-resolves every hit; declaration/write/read),
+     `symbolsInScope` (completion candidates), `memberContextAt`, `searchSymbols`.
+   - `outline.ts`, `folding.ts`, `semantic.ts`, `rename.ts`, `format.ts` — feature models
+     (outline tree, folding ranges, semantic tokens, rename edits, Markdown/labels) built on
+     the above.
 
-**`SymbolParser`** (`src/providers/SymbolParser.ts`) is the core intelligence. It is a
-**line-by-line regex scanner, not a real parser**: it recognizes `SUB`/`FUNCTION`/`TYPE`/`CONST`
-and `DIM`/`STATIC`/`COMMON`/`REDIM` declarations, tracks LOCAL/MODULE/GLOBAL scope, extracts
-doc comments (leading `'` lines, `@param name desc`), caches results per file by mtime, and
-follows `$INCLUDE` directives. Scope filtering in `getSymbolsInScope` mirrors QB64PE's own rules
-(local vars only inside their SUB/FUNCTION, `SHARED` ⇒ GLOBAL). Edge cases stem from its regex nature.
+2. **`src/providers/` — thin VS Code adapters.** `WorkspaceSymbolIndex` owns the one
+   `SymbolIndex` (workspace scan, debounced dirty-buffer indexing, file watcher, renames);
+   providers call `ensureDocument(document)` first, then a core query, then map with
+   `convert.ts`. `extension.ts` `activate()` creates the index and registers every provider
+   and command. Adding a language feature = a core module with tests + a small provider +
+   one `register*` call.
 
-**`TokenInfo`** (`src/TokenInfo.ts`) resolves keyword help. It builds a **case-insensitive cache
-of the ~1050 offline wiki `.md`/`.txt` files in `help/`** and tries several spellings of a token
-(underscore prefix `_X`, `$X`, `X$`) to find the right doc; falls back to the online wiki at
-`qb64phoenix.com/qb64wiki` when offline help is missing. `help/` is the offline documentation
-corpus — editing hover/F1 content means editing those files, not the keyword array.
-
-**Linting** (`src/lintFunctions.ts`) shells out to the QB64PE compiler
-(`<compilerPath> -c <file> -o <bin> -x -w`), then parses stdout: lines beginning with known
-error prefixes (`Illegal`, `Syntax`, `Expected`, …) and `LINE n:` markers become
-`DiagnosticSeverity.Error`, and lines containing `warning` become warnings, published to the
-`QB64PE-lint` diagnostic collection.
+Other pieces: `TokenInfo.ts` resolves **built-in keyword** help from the ~1050 offline wiki
+`.md` files in `help/` (case-insensitive, tries sigil/underscore variants; falls back to the
+online wiki). The 500+ keyword list for completion is hardcoded in
+`CompletionItemProvider.ts`; syntax highlighting is the TextMate grammar in `syntaxes/`
+(semantic tokens only cover user-defined names, so the two do not fight). `lintFunctions.ts`
+shells out to the compiler and parses its output into diagnostics. `todoFunctions.ts` feeds
+the TODO view. `decoratorFunctions.ts` uses the index to bold routine names.
 
 ## Conventions & gotchas
 
 - **User must configure paths**: `qb64pe.installPath`, `qb64pe.helpPath`, `qb64pe.compilerPath`.
-  `helpPath` defaults to the extension install dir on first activation. Features that build/lint/open-help
-  degrade gracefully (or show errors) when these are unset — preserve that behavior.
+  Features that build/lint/open-help degrade gracefully when these are unset — preserve that.
 - **All settings live under the `qb64pe.*` namespace** in `package.json` `contributes.configuration`.
-  Adding a feature toggle means adding it there and reading it via `vscode.workspace.getConfiguration("qb64pe")`.
-- **Syntax highlighting** is TextMate grammar in `syntaxes/qb64pe.tmLanguage.json`
-  (+ `qb64pe-keywords.tmLanguage.json`), independent of the completion keyword array — keep the two in sync
-  when adding keywords that should be both highlighted and completed.
-- Windows-style backslash paths are normalized with `.replaceAll("\\", "/")` throughout; keep this
-  when touching path handling since the extension runs cross-platform.
-- Version bumps go in `package.json`; release notes live in `releases/` and are copied to `changelog.md`
-  by the `changelog` build task.
+- QB64PE specifics the code relies on: identifiers are case-insensitive; the type sigil is part
+  of a variable's identity but routines may be called without it; `_`-prefixed names are
+  keywords; `$INCLUDE` is textual inclusion (a `.bi` shares scope with its includer);
+  strings have no escapes; `REM` only comments at statement start; metacommands' `:`/`'` are
+  not separators.
+- Paths: `normalizePath()` keys the index (absolute, case-folded on Windows); compare files
+  through `WorkspaceSymbolIndex.keyOf()`, never raw `fsPath`. Backslashes in include paths
+  are normalized to `/`.
+- `language-configuration.json` `wordPattern` includes sigils on purpose (`title$` is one word).
+- Version bumps go in `package.json`; release notes go in **`changelog.md`** (the
+  `.vscode/tasks.json` "changelog" task that copies from `releases/` is stale — there is no
+  `releases/` directory).

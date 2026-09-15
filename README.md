@@ -9,55 +9,36 @@ A VSCode extension that adds support for [QB64 PE](https://www.qb64phoenix.com).
 
 ## Features
 
-- **Intelligent Code Completion**: Comprehensive autocomplete with 500+ QB64PE keywords including all modern underscore-prefixed functions
-- **Inline Code Templates**: Smart multi-line completions for game loops, graphics setup, input handling, and more
-- **Modern QB64PE Support**: Full support for graphics (`_NEWIMAGE`, `_DISPLAY`), sound (`_SNDOPEN`), input (`_MOUSEINPUT`), and memory functions
-- Utilize `F1` to _open help_ via the QB64PE Wiki
-- Ctrl+F1 to _open keyword list alphabetical_
-- Shift+F1 to _open keyword list by usage_
-- Go to Definition `F12`
-- `F12` to _follow_ (open) an Include file
-- `F5` to Build & Run
-- `ctrl+shift+b` to build the current file
+- **Language intelligence** powered by a workspace-wide symbol index that follows `$INCLUDE` chains and understands QB64PE scope (locals, parameters, `SHARED`, module level, TYPE members):
+  - Go to Definition (`F12`) — including TYPE fields (`p.pos.x`), labels, `DECLARE LIBRARY` routines, and `'$INCLUDE:'…'` / `$EXEICON:'…'` files
+  - Find All References / Peek References across every file of the program (never matches inside comments or strings)
+  - Rename Symbol (`F2`) across the program, keeping your type sigils honest
+  - Highlight occurrences of the symbol under the cursor (reads vs writes)
+  - Outline & breadcrumbs with real hierarchy: routines → parameters and locals, TYPEs → fields, includes, labels
+  - Go to Symbol in Workspace (`Ctrl+T`)
+  - Block-aware code folding (SUB/FUNCTION, TYPE, IF, SELECT, DO, FOR, WHILE, `$IF`, comment blocks)
+  - Semantic highlighting of user-defined routines, types, variables, parameters, fields and labels
+- **Intelligent Code Completion**: 500+ QB64PE keywords (all modern underscore-prefixed functions) plus everything you defined that is in scope — ranked first — and **member completion** (`variable.` lists the fields of its TYPE)
+- **Hover & signature help** for your own SUBs/FUNCTIONs (declaration, doc comments, parameters, return type, TYPE members) and for built-in keywords via the offline wiki
+- **Inline Code Templates**: multi-line completions for game loops, graphics setup, input handling, and more
+- `F1` to _open help_ via the QB64PE Wiki; `Ctrl+F1` keyword list alphabetical; `Shift+F1` keyword list by usage
+- `F5` to Build & Run, `ctrl+shift+b` to build the current file
 - Syntax highlighting for QB64PE (up to the latest version)
-- Code outline (`CTRL+F2`)
-- Code folding
-- Build Only
-- Highlights TODOs in the comments
-- Box around (\_)rgb(32) commands the color of the command.
-- `ctrl+alt+l` to run the lint - this is experimental. Please report any issues.
-- Enhanced Snippets for modern QB64PE development
+- Highlights TODOs in the comments (own view in the Explorer)
+- Box around (\_)rgb(32) commands the color of the command
+- `ctrl+alt+l` to run the lint (compiler diagnostics) — experimental, please report issues
+- Enhanced snippets for modern QB64PE development
 
-## Code Completion Features
+### Documenting your own code
 
-The QB64PE extension now includes powerful completion providers that enhance your development experience:
+Comment lines directly above a `SUB`, `FUNCTION`, `TYPE` or `CONST` become its hover/completion documentation, and `' @param name description` lines document parameters:
 
-### CompletionItemProvider
-
-- **500+ Keywords**: Complete database of QB64PE keywords including all modern functions
-- **Context-Aware Suggestions**: Intelligent filtering based on current code context
-- **Modern Function Support**: Full support for underscore-prefixed functions:
-  - Graphics: `_NEWIMAGE`, `_DISPLAY`, `_PUTIMAGE`, `_LOADIMAGE`
-  - Sound: `_SNDOPEN`, `_SNDPLAY`, `_SNDVOL`, `_SNDLEN`
-  - Input: `_MOUSEINPUT`, `_MOUSEX`, `_MOUSEY`, `_KEYHIT`
-  - Memory: `_MEM`, `_MEMGET`, `_MEMPUT`, `_MEMFREE`
-- **Detailed Documentation**: Hover information and usage examples for each keyword
-- **Smart Filtering**: Automatic filtering based on function categories and context
-
-### InlineCompletionItemProvider
-
-- **Multi-line Templates**: Complete code patterns for common QB64PE tasks
-- **Game Development Patterns**: Ready-to-use templates for:
-  - Game loops with input handling
-  - Graphics initialization sequences
-  - Sound system setup
-  - Sprite and animation frameworks
-- **Modern QB64PE Patterns**: Templates using current best practices and modern functions
-- **Context-Sensitive**: Suggests appropriate patterns based on current code structure
-
-### Usage
-
-Simply start typing any QB64PE keyword or pattern, and the completion providers will offer intelligent suggestions. Use `Ctrl+Space` to manually trigger completions, or let the automatic triggers help you as you type.
+```QB64PE
+' Moves the player and returns the new x position.
+' @param p the player record
+' @param dx horizontal delta
+FUNCTION MovePlayer% (p AS Player, dx AS INTEGER)
+```
 
 ## Requirements
 
