@@ -2,7 +2,7 @@
   "name": "qb64pe",
   "displayName": "QB64PE",
   "description": "QB64PE (Phoenix Edition) language support for Visual Studio Code with intelligent code completion and 500+ keywords.",
-  "version": "0.12.3",
+  "version": "0.12.4",
   "engines": {
     "vscode": "^1.78.1"
   },
@@ -186,6 +186,11 @@
           "type": "number",
           "default": 15000,
           "description": "Debug|Timeout: milliseconds to wait for the program to connect back to the debugger before giving up."
+        },
+        "qb64pe.debug.trace": {
+          "type": "boolean",
+          "default": true,
+          "description": "Debug|Trace: log the vwatch protocol exchange (commands sent and received) to the Debug Console. Useful while the debugger is stabilizing; turn off for quiet output."
         },
         "qb64pe.isFormatMetaCommandsMixedCaseEnabled": {
           "type": "boolean",

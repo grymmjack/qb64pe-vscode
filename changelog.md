@@ -2,6 +2,10 @@
 
 All notable changes to the "QB64 PE" extension will be documented in this file.
 
+## 0.12.4
+
+- Debugger: added a `qb64pe.debug.trace` setting (on by default) that logs the vwatch protocol exchange to the Debug Console, and removed a redundant per-stop request. Diagnostics for stabilizing stepping.
+
 ## 0.12.3
 
 - Debugger: name the compiled executable `<name>.run` on Linux/macOS and `<name>.exe` on Windows, matching the common QB64PE convention (and detect whichever the compiler produced).

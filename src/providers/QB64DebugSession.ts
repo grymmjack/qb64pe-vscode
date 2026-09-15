@@ -532,6 +532,7 @@ export class QB64DebugSession extends LoggingDebugSession {
   }
 
   private dispatch(msg: ReturnType<typeof interpret>): void {
+    this.traceRx(msg);
     switch (msg.kind) {
       case "me":
         this.onHandshake();
@@ -570,6 +571,30 @@ export class QB64DebugSession extends LoggingDebugSession {
     }
   }
 
+  // ---- protocol tracing ----------------------------------------------------
+
+  private tracing?: boolean;
+  private isTracing(): boolean {
+    if (this.tracing === undefined) {
+      this.tracing = vscode.workspace
+        .getConfiguration("qb64pe")
+        .get<boolean>("debug.trace", true);
+    }
+    return this.tracing;
+  }
+
+  private traceRx(msg: ReturnType<typeof interpret>): void {
+    if (!this.isTracing()) return;
+    let detail = "";
+    if (msg.kind === "stopped") detail = `${msg.reason} line ${msg.line}`;
+    else if (msg.kind === "currentSub") detail = msg.name;
+    else if (msg.kind === "callStack") detail = `${msg.frames.length} frame(s)`;
+    else if (msg.kind === "callStackSize") detail = String(msg.count);
+    else if (msg.kind === "quit") detail = msg.reason;
+    else if (msg.kind === "unknown") detail = msg.command;
+    this.output(`  ← ${msg.kind}${detail ? " " + detail : ""}\n`);
+  }
+
   /** After the debuggee announces itself: send the setup sequence, then run. */
   private onHandshake(): void {
     if (this.launched) return;
@@ -594,13 +619,14 @@ export class QB64DebugSession extends LoggingDebugSession {
     this.send(this.stopOnEntry ? VWatchOut.Break : VWatchOut.Run);
   }
 
-  /** Handle a stop: refresh state, ask for sub + call stack, notify VS Code. */
+  /** Handle a stop: refresh state, ask for the call stack, notify VS Code. */
   private onStop(line: number, reason: string): void {
     this.output(`Stopped at line ${line} (${reason}).\n`);
     this.currentLine = line;
     this.callStackReady = false;
     this.callStack = [];
-    this.send(VWatchOut.CurrentSub);
+    // The debuggee already sends "current sub" with every stop, so only the
+    // call stack needs requesting (while it is polling in its main loop).
     this.send(VWatchOut.CallStack);
     this.sendEvent(new StoppedEvent(reason, THREAD_ID));
   }
@@ -616,6 +642,15 @@ export class QB64DebugSession extends LoggingDebugSession {
 
   private send(command: string, value?: Buffer | string): void {
     if (!this.socket) return;
+    if (this.isTracing()) {
+      let detail = "";
+      if (Buffer.isBuffer(value) && value.length === 4) {
+        detail = " " + value.readInt32LE(0);
+      } else if (typeof value === "string") {
+        detail = " " + value;
+      }
+      this.output(`  → ${command}${detail}\n`);
+    }
     this.socket.write(encode(command, value));
   }
 
