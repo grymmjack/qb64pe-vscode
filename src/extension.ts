@@ -242,11 +242,17 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.debug.registerDebugAdapterDescriptorFactory(
       "QB64PE",
-      new DebugAdapterDescriptorFactory()
+      new DebugAdapterDescriptorFactory(workspaceIndex)
     ),
     vscode.debug.registerDebugConfigurationProvider(
       "QB64PE",
       new QB64PEDebugConfigurationProvider()
+    ),
+    // Dynamic kind so F5 on a .bas offers "QB64PE: Debug" directly.
+    vscode.debug.registerDebugConfigurationProvider(
+      "QB64PE",
+      new QB64PEDebugConfigurationProvider(),
+      vscode.DebugConfigurationProviderTriggerKind.Dynamic
     )
   );
 

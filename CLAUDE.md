@@ -74,6 +74,32 @@ Two layers:
    and command. Adding a language feature = a core module with tests + a small provider +
    one `register*` call.
 
+The **debugger** follows the same two-layer split (vscode-free core + thin provider):
+- `src/core/vwatchProtocol.ts` — codec for QB64PE's `vwatch` protocol (MKL$ length framing,
+  message parse/encode, call-stack + `address read` parsing, typed value decode).
+- `src/core/vwatchVars.ts` — decodes the compiler's generated C variable table
+  (`vwatch_global_vars[]`/`vwatch_local_vars[]` in `internal/temp/*.txt`) into
+  `index → (scope, type, name)`, which is the `localIndex` a get-var request needs. This is
+  how live variable values are obtained (there is no manifest file; we read the generated C).
+- `src/core/flatten.ts` — inlines the whole `$INCLUDE` graph into the temp file we compile,
+  with a flattened-line ↔ (file,line) map. QB64PE only instruments the main module, so
+  flattening is what makes breakpoints/stepping/variables work inside `.bi`/`.bm` includes.
+  Honors `$INCLUDEONCE`/cycles and rewrites `DECLARE LIBRARY` specs to absolute paths so
+  headers stay findable after the move.
+- `src/core/vwatchConditions.ts` — pure helpers for conditional / hit-count breakpoints
+  (vwatch has no native one; the adapter evaluates the condition on each hit).
+- `providers/QB64DebugSession.ts` — the inline Debug Adapter (`@vscode/debugadapter`): flattens
+  + compiles with `$DEBUG`, hosts a TCP server the debuggee connects back to (`QB64DEBUGPORT`),
+  and maps vwatch ↔ DAP, translating every line through the flatten map.
+  `DebugAdapterDescriptorFactory` routes `program` configs (F5) to it and `command` configs
+  (Ctrl+F5 / custom) to the terminal build & run.
+
+Ground truth for the protocol is the user's `internal/support/vwatch/vwatch.bm`; the full design
+is in `docs/DEBUGGER_PLAN.md`. Everything has core unit tests (`src/test/core/vwatch*.test.ts`,
+`flatten.test.ts`). Enable `qb64pe.debug.trace` to log the DAP↔vwatch exchange to the Debug
+Console. Remaining limits: arrays are inspected by index via Watch (`arr(i)`) since the runtime
+exposes no bounds; set-variable and skip-line decorations are not implemented yet.
+
 Other pieces: hover keyword help is served by `providers/HelpService.ts`, which converts the
 user's *installed* QB64PE wiki source (`<installPath>/internal/help/*.txt`) via `core/wikitext`
 and caches it (memory + globalStorage by mtime), falling back to the bundled `help/*.md`

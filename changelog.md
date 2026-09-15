@@ -2,6 +2,73 @@
 
 All notable changes to the "QB64 PE" extension will be documented in this file.
 
+## 0.16.2
+
+- Debugger: colour-valued variables now show a readable hint. A variable whose name looks like a colour (`*color`, `fg`, `bg`, `clr*`) and whose value is a 32-bit `_RGB32`/`&HAARRGGBB` number is annotated, e.g. `fgColor = 4294638330  (#FAFAFA A:255)`, in the Variables and Watch panels. (VS Code's debug view can't render an actual colour swatch.)
+
+## 0.16.1
+
+- Debugger: fixed "LIBRARY not found" when debugging multi-file programs whose `$INCLUDE`d files use `DECLARE LIBRARY` with a header that sits next to the include (e.g. DRAW's `filedialog_platform`). Flattening now rewrites such a library spec to the absolute path of its original directory so the header stays findable; system libraries (no sibling header) are left unchanged.
+
+## 0.16.0
+
+- Debugger: **full multi-file debugging** (`$INCLUDE`). You can now set breakpoints, step, see the call stack, and inspect variables inside `.bi`/`.bm` include files — not just the main file. QB64PE only instruments the main module, so the extension flattens your whole `$INCLUDE` graph into the temporary file it compiles (honoring `$INCLUDEONCE`, nested includes and cycles) and maps every line back to its real file, so stops and breakpoints land in the correct source. This is something the QB64PE IDE's own debugger can't do. (The previous "breakpoints only work in the main module" limitation is gone.)
+
+## 0.15.0
+
+- Debugger: **conditional breakpoints and hit counts**. Right-click a breakpoint → Edit Breakpoint to add an Expression (`x > 5`, `count = 10`, `name$ = "hi"`) or a Hit Count (`5`, `>5`, `%3`). QB64PE's runtime has no native conditional breakpoint, so the adapter evaluates the condition on each hit (reading the variable's live value) and keeps running when it isn't met. Simple `variable op literal` conditions are supported; anything more complex falls back to stopping.
+
+## 0.14.1
+
+- Debugger: fixed TYPE variables showing `<UDT>` with no expander and `p.field` returning `<no such field>`. TYPE definitions and variable types are now read by parsing the program source directly instead of relying on the workspace index (which may not have indexed the file being debugged).
+
+## 0.14.0
+
+- Debugger: **TYPE variables and arrays**. A TYPE (UDT) variable is now expandable in the Variables panel — click to see each field's live value (nested TYPEs expand too), computed from the TYPE's packed byte layout. Array elements and TYPE fields can be inspected via the Watch panel and hovers: `balls(3)`, `grid(2,4)`, `player.score`, `enemy.pos.x`. (Arrays are read by index rather than auto-expanded, since the runtime doesn't expose array bounds — same model as the QB64PE IDE.) This completes live inspection (M3).
+
+## 0.13.0
+
+- Debugger: **live variable values**. The Variables panel now shows real values for scalar globals and the current routine's locals (INTEGER, LONG, SINGLE, DOUBLE, STRING, `_BYTE`, `_INTEGER64`, `_OFFSET`, and unsigned variants), plus a Constants scope with static CONST values. Hovering a variable and Watch expressions evaluate live too. Values are read via vwatch get-var requests, using the variable table the compiler emits in its generated C (decoded by the new `core/vwatchVars`). Arrays and TYPE variables are listed but not yet expanded (next).
+
+## 0.12.7
+
+- Debugger: fixed the session terminating on step-into. VS Code can send multiple stackTrace requests before the call stack arrives; the adapter held only the last one, leaving the earlier request unanswered so VS Code tore down the session. All pending stackTrace requests are now queued and answered.
+
+## 0.12.6
+
+- Debugger: fixed the toolbar staying in the running state (step/continue greyed) after a step — stops now report allThreadsStopped so VS Code switches to the paused controls. Added DAP-request logging to the trace.
+
+## 0.12.5
+
+- Debugger: log the reason the session ends (e.g. disconnect request, socket close, quit) and guard message dispatch so an exception is reported instead of silently ending the session. Diagnostics for the step-into teardown.
+
+## 0.12.4
+
+- Debugger: added a `qb64pe.debug.trace` setting (on by default) that logs the vwatch protocol exchange to the Debug Console, and removed a redundant per-stop request. Diagnostics for stabilizing stepping.
+
+## 0.12.3
+
+- Debugger: name the compiled executable `<name>.run` on Linux/macOS and `<name>.exe` on Windows, matching the common QB64PE convention (and detect whichever the compiler produced).
+
+## 0.12.2
+
+- Debugger: fixed "no executable was produced" on Linux/macOS. QB64PE writes the executable without a `.exe` extension on those platforms, so the debugger now names the output per-platform and detects whatever the compiler actually produced (with or without `.exe`) before launching it.
+
+## 0.12.1
+
+- Debugger: fixed F5 launching the terminal build & run instead of the debugger. The `initialConfigurations`/environment-picker path used a `command`-based config, which routed away from the DAP session; the default configuration is now the `program`-based debug config, and a dynamic configuration provider offers "QB64PE: Debug" on F5 so it starts the real debugger. Added connect/handshake/stop logging to the Debug Console. (Reminder: put breakpoints on executable lines — a bare `DIM` declaration emits no debug line and can't be hit.)
+
+## 0.12.0
+
+- Source-level debugger (`F5`)
+  - A real Debug Adapter that bridges VS Code to QB64PE's own `vwatch` debugger. Set a breakpoint in your `.bas`, press `F5`, and execution stops on that line in the editor.
+  - Stepping: step in / over / out (`F11` / `F10` / `Shift+F11`), continue, pause, stop, and jump-to-cursor ("set next line").
+  - A real call stack across your SUBs/FUNCTIONs, mapped back to the source via the symbol index — including routines defined in `$INCLUDE` files (their frames resolve to the right file).
+  - Works with no `launch.json`: the program is compiled with `$DEBUG` (auto-added to a temporary copy if missing, preserving line numbers) and run with the debugger hosting its `vwatch` connection. `Ctrl+F5` (Run Without Debugging) keeps the plain terminal build & run from 0.11.1.
+  - New settings: `qb64pe.debug.basePort` (default 9000, matches the IDE's BaseTCPPort), `qb64pe.debug.autoAddDebug`, `qb64pe.debug.timeoutMs`. Breakpoints are enabled for the QB64PE language, and a "QB64PE: Debug" launch snippet is contributed.
+  - Known limits (inherited from vwatch): breakpoints only bind on the main module's lines — breakpoints inside `$INCLUDE`d `.bi`/`.bm` files are shown unverified with a reason; and the Variables/Watch panel lists in-scope names + declared types (and real `CONST` values) but not live variable values yet (that needs a compiler-emitted variable manifest QB64PE does not produce). See the README "Debugging notes".
+  - Implementation: a vscode-free `vwatch` protocol codec (`src/core/vwatchProtocol.ts`, 24 unit tests pinning the wire format) plus an inline `QB64DebugSession`. Full plan in `docs/DEBUGGER_PLAN.md`. Builds on debugger groundwork by LordDurus.
+
 ## 0.11.1
 
 - Build & Run (F5)
