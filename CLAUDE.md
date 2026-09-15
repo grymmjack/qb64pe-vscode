@@ -22,6 +22,7 @@ npx mocha out/test/core/queries.test.js -g "member"   # one test by name
 npm run test:integration # Extension Development Host smoke test of every provider (downloads VS Code to .vscode-test/ once;
                          #   prefix with `xvfb-run -a` to keep it off your screen; the runner clears ELECTRON_RUN_AS_NODE)
 npm run package          # Produce the installable .vsix with @vscode/vsce (contents governed by .vscodeignore)
+npm run qb64ref -- <root> def|refs|sym|at <args>   # headless code intelligence over a QB64 codebase (uses src/core)
 ```
 
 - **Run/debug the extension**: press F5 in VS Code (uses `.vscode/launch.json`) to launch an
