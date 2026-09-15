@@ -500,6 +500,8 @@
   },
   "scripts": {
     "qb64ref": "node scripts/qb64ref.js",
+    "build:qb64ref": "npm run compile && esbuild scripts/qb64ref.js --bundle --platform=node --target=node18 --outfile=bin/qb64ref.cjs",
+    "install:qb64ref": "npm run build:qb64ref && mkdir -p \"$HOME/.local/bin\" && cp bin/qb64ref.cjs \"$HOME/.local/bin/qb64ref\" && chmod +x \"$HOME/.local/bin/qb64ref\" && echo \"installed qb64ref to $HOME/.local/bin/qb64ref\"",
     "vscode:prepublish": "npm run esbuild-base -- --minify",
     "esbuild-base": "esbuild ./src/extension.ts --bundle --outfile=out/main.js --external:vscode --format=cjs --platform=node",
     "esbuild": "npm run esbuild-base -- --sourcemap",
