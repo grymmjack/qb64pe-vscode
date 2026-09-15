@@ -2,6 +2,10 @@
 
 All notable changes to the "QB64 PE" extension will be documented in this file.
 
+## 0.12.3
+
+- Debugger: name the compiled executable `<name>.run` on Linux/macOS and `<name>.exe` on Windows, matching the common QB64PE convention (and detect whichever the compiler produced).
+
 ## 0.12.2
 
 - Debugger: fixed "no executable was produced" on Linux/macOS. QB64PE writes the executable without a `.exe` extension on those platforms, so the debugger now names the output per-platform and detects whatever the compiler actually produced (with or without `.exe`) before launching it.

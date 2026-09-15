@@ -659,15 +659,18 @@ export class QB64DebugSession extends LoggingDebugSession {
   private exePathFor(sourceFile: string): string {
     const dir = path.dirname(sourceFile);
     const base = path.basename(this.program, path.extname(this.program));
-    // QB64PE appends .exe on Windows only; Linux/macOS produce a bare name.
-    const name = process.platform === "win32" ? base + ".exe" : base;
-    return path.join(dir, name);
+    // Convention: .exe on Windows, .run on Linux/macOS.
+    const ext = process.platform === "win32" ? ".exe" : ".run";
+    return path.join(dir, base + ext);
   }
 
-  /** Find the executable the compiler actually produced (handles .exe or not). */
+  /**
+   * Find the executable the compiler actually produced. QB64PE keeps a `.run`
+   * extension but drops `.exe` on non-Windows, so probe the likely names.
+   */
   private findProducedExe(exePath: string): string | undefined {
-    const withoutExe = exePath.replace(/\.exe$/i, "");
-    const candidates = [exePath, withoutExe, withoutExe + ".exe"];
+    const stem = exePath.replace(/\.(run|exe)$/i, "");
+    const candidates = [exePath, stem + ".run", stem + ".exe", stem];
     return candidates.find((p) => {
       try {
         return fs.existsSync(p) && fs.statSync(p).isFile();
