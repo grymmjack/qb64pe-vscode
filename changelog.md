@@ -2,6 +2,10 @@
 
 All notable changes to the "QB64 PE" extension will be documented in this file.
 
+## 0.17.1
+
+- Debugger: keyword hover help (and symbol hovers) now keep working while debugging. Previously, hovering a keyword like PAINT during a debug session showed "<not in scope>" from the debugger, which overrode the normal hover. The debugger now defers to the language hover when the hovered word is not a debuggable value.
+
 ## 0.17.0
 
 - Debugger: **cached builds**. When you start debugging and the source hasn't changed since the last run, the extension reuses the previous executable and variable manifest instead of recompiling — repeat debug sessions of large multi-file projects go from a long compile to near-instant. Detection is exact (byte-identical flattened source). Toggle with `qb64pe.debug.cacheBuild` (default on). The flattened temp file and its `.manifest` are kept next to your source as the cache.

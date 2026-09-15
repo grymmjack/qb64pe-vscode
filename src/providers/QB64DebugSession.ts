@@ -892,17 +892,18 @@ export class QB64DebugSession extends LoggingDebugSession {
     args: DebugProtocol.EvaluateArguments
   ): void {
     const expr = (args.expression || "").trim();
+    const hover = args.context === "hover";
 
     // Array element:  name(i)  or  name(i, j)
     const arr = /^([A-Za-z_][A-Za-z0-9_]*)[%&!#$~]?\s*\(([^)]*)\)$/.exec(expr);
     if (arr) {
-      this.evaluateArray(response, arr[1], arr[2]);
+      this.evaluateArray(response, arr[1], arr[2], hover);
       return;
     }
 
     // Member path:  name.field.field
     if (expr.includes(".")) {
-      this.evaluateMember(response, expr);
+      this.evaluateMember(response, expr, hover);
       return;
     }
 
@@ -926,16 +927,33 @@ export class QB64DebugSession extends LoggingDebugSession {
       });
       return;
     }
-    this.reply(
+    // Not a debuggable value. On hover, fail so VS Code shows the normal
+    // language hover (keyword help, symbol declarations) instead of our text.
+    this.unresolved(
       response,
+      hover,
       found?.v.isArray ? "<use name(index)>" : found?.v.isUDT ? "<use name.field>" : "<not in scope>"
     );
+  }
+
+  /** Reply with a message, or (on hover) an error so the language hover wins. */
+  private unresolved(
+    response: DebugProtocol.EvaluateResponse,
+    hover: boolean,
+    message: string
+  ): void {
+    if (hover) {
+      this.sendErrorResponse(response, { id: 1002, format: "" });
+    } else {
+      this.reply(response, message);
+    }
   }
 
   private evaluateArray(
     response: DebugProtocol.EvaluateResponse,
     name: string,
-    indexText: string
+    indexText: string,
+    hover: boolean
   ): void {
     const found = this.findVar(name.toUpperCase());
     const indexes = indexText
@@ -943,7 +961,7 @@ export class QB64DebugSession extends LoggingDebugSession {
       .map((s) => parseInt(s.trim(), 10))
       .filter((n) => !Number.isNaN(n));
     if (!found || !found.v.isArray || found.v.isUDT || indexes.length === 0) {
-      this.reply(response, "<no such array element>");
+      this.unresolved(response, hover, "<no such array element>");
       return;
     }
     this.evalGetVar(response, found.isLocal, {
@@ -958,12 +976,13 @@ export class QB64DebugSession extends LoggingDebugSession {
 
   private evaluateMember(
     response: DebugProtocol.EvaluateResponse,
-    expr: string
+    expr: string,
+    hover: boolean
   ): void {
     const parts = expr.split(".");
     const base = this.findVar(parts[0].replace(/[%&!#$~]+$/, "").toUpperCase());
     if (!base || !base.v.isUDT) {
-      this.reply(response, "<not a TYPE variable>");
+      this.unresolved(response, hover, "<not a TYPE variable>");
       return;
     }
     let typeName = this.udtTypeOf(base.v.name);
@@ -975,7 +994,7 @@ export class QB64DebugSession extends LoggingDebugSession {
         (f) => f.name.toUpperCase() === parts[i].toUpperCase()
       );
       if (!field || field.size === null || Number.isNaN(offset)) {
-        this.reply(response, "<no such field>");
+        this.unresolved(response, hover, "<no such field>");
         return;
       }
       offset += field.offset;
@@ -990,7 +1009,7 @@ export class QB64DebugSession extends LoggingDebugSession {
       }
     }
     if (!leaf) {
-      this.reply(response, "<no such field>");
+      this.unresolved(response, hover, "<no such field>");
       return;
     }
     this.evalGetVar(response, base.isLocal, {
