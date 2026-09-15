@@ -119,8 +119,13 @@ function collapse(text: string): string {
   return text.trim().replace(/\s+/g, " ");
 }
 
+/** `count%` -> `count`, `Describe$` -> `Describe`. */
+export function stripSigil(name: string): string {
+  return name.replace(SIGIL_AT_END, "");
+}
+
 function baseName(name: string): string {
-  return name.replace(SIGIL_AT_END, "").toLowerCase();
+  return stripSigil(name).toLowerCase();
 }
 
 /** Splits on commas that are outside parentheses and string literals. */
