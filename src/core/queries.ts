@@ -337,6 +337,42 @@ export function resolveMember(
   return { owner: type, field: member(type, field) };
 }
 
+export interface MemberContext {
+  /** The TYPE whose members apply, or null when the owner did not resolve. */
+  owner: QB64Symbol | null;
+  members: QB64Symbol[];
+  /** The partial member name typed so far (may be empty). */
+  prefix: string;
+  chain: string[];
+}
+
+/**
+ * When the cursor sits right after `owner.` (optionally followed by a partial
+ * name), the TYPE members that can complete it. Null when the cursor is not
+ * in a member position at all; an unresolvable owner yields empty members.
+ */
+export function memberContextAt(
+  index: SymbolIndex,
+  file: string,
+  position: Position
+): MemberContext | null {
+  const key = normalizePath(file);
+  const text = index.get(key)?.lines[position.line];
+  if (text === undefined) return null;
+
+  const scan = scanLine(text);
+  const partial = identifierAt(text, position.character, scan);
+  const start = partial && partial.end === position.character ? partial.start : position.character;
+  if (start === 0 || scan.mask[start - 1] !== ".") return null;
+
+  const chain = chainBefore(text, scan, start);
+  const prefix = partial && partial.end === position.character ? partial.word : "";
+  if (chain.length === 0) return { owner: null, members: [], prefix, chain };
+
+  const m = resolveMember(index, key, position.line, chain, "");
+  return { owner: m?.owner ?? null, members: m?.owner.members ?? [], prefix, chain };
+}
+
 /** What is under the cursor. Null when not on an identifier. */
 export function resolveAt(
   index: SymbolIndex,

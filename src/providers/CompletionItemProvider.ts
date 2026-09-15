@@ -7,7 +7,7 @@ import * as logFunctions from "../logFunctions";
 import { TokenInfo } from "../TokenInfo";
 import { QB64Symbol } from "../core/symbols";
 import { WorkspaceSymbolIndex } from "./WorkspaceSymbolIndex";
-import { symbolsInScope } from "../core/queries";
+import { memberContextAt, symbolsInScope } from "../core/queries";
 import { kindLabel, signatureLabel, symbolMarkdown } from "../core/format";
 
 export class CompletionItemProvider implements vscode.CompletionItemProvider {
@@ -1164,6 +1164,22 @@ export class CompletionItemProvider implements vscode.CompletionItemProvider {
     context: vscode.CompletionContext
   ): Promise<vscode.CompletionItem[] | vscode.CompletionList> {
     try {
+      this.workspaceIndex.ensureDocument(document);
+      const key = this.workspaceIndex.keyOf(document);
+
+      // `owner.` / `owner.pre|` completes with the owner's TYPE fields only.
+      const member = memberContextAt(this.workspaceIndex.index, key, position);
+      if (member) {
+        const prefix = member.prefix.toLowerCase();
+        return member.members
+          .filter((f) => f.name.toLowerCase().startsWith(prefix))
+          .map((f, i) => {
+            const item = this.createCompletionFromSymbol(f, document)!;
+            item.sortText = String(i).padStart(3, "0"); // declaration order
+            return item;
+          });
+      }
+
       // Get the current line and word being typed
       const lineText = document.lineAt(position).text;
       const wordRange = document.getWordRangeAtPosition(position);
@@ -1343,7 +1359,6 @@ export class CompletionItemProvider implements vscode.CompletionItemProvider {
     try {
       // Everything visible here: params/locals of the enclosing routine, then
       // this file, its includes and the rest of the compilation unit.
-      this.workspaceIndex.ensureDocument(document);
       const scopedSymbols = symbolsInScope(
         this.workspaceIndex.index,
         this.workspaceIndex.keyOf(document),
@@ -1410,6 +1425,11 @@ export class CompletionItemProvider implements vscode.CompletionItemProvider {
         completion.detail = symbol.value
           ? `CONST ${symbol.name} = ${symbol.value}`
           : "User-defined constant";
+        break;
+
+      case "FIELD":
+        completion.kind = vscode.CompletionItemKind.Field;
+        completion.detail = `${symbol.dataType ?? ""}${symbol.isArray ? "()" : ""} (field of ${symbol.parent})`.trim();
         break;
 
       default:

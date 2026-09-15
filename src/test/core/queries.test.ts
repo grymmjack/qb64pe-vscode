@@ -7,6 +7,7 @@ import {
   Position,
   findDefinition,
   findOccurrences,
+  memberContextAt,
   resolveAt,
   symbolsInScope,
 } from "../../core/queries";
@@ -143,6 +144,24 @@ describe("core/queries", () => {
       const decl = resolveAt(index, MEM, { line: 4, character: 4 })!;
       assert.strictEqual(decl.symbol.type, "FIELD");
       assert.strictEqual(decl.symbol.name, "pos");
+    });
+
+    it("offers the owner's fields after a dot, filtered by the partial name", () => {
+      const MC = F("virtual/memctx.bas");
+      index.setFile(MC, source + "\np.\np.po\np.pos.\nteam(1).\nzzz.\nx = 1.\nPRINT p\n");
+      try {
+        const at = (line: number, character: number) => memberContextAt(index, MC, { line, character });
+        assert.deepStrictEqual(at(14, 2)!.members.map((m) => m.name), ["pos", "name"]);
+        assert.strictEqual(at(14, 2)!.owner.name, "Player");
+        assert.strictEqual(at(15, 4)!.prefix, "po");
+        assert.deepStrictEqual(at(16, 6)!.members.map((m) => m.name), ["x"]);
+        assert.deepStrictEqual(at(17, 8)!.members.map((m) => m.name), ["pos", "name"]);
+        assert.deepStrictEqual(at(18, 4), { owner: null, members: [], prefix: "", chain: ["zzz"] });
+        assert.deepStrictEqual(at(19, 6)!.members, []); // `1.` is a number, not an owner
+        assert.strictEqual(at(20, 7), null); // no dot before the cursor
+      } finally {
+        index.removeFile(MC);
+      }
     });
 
     it("finds all occurrences of a field and of a TYPE", () => {
