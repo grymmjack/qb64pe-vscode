@@ -2,6 +2,10 @@
 
 All notable changes to the "QB64 PE" extension will be documented in this file.
 
+## 0.19.0
+
+- Formatter: **proper block indentation**. The document formatter now indents with a block-aware engine — SUB/FUNCTION, IF/ELSE/ELSEIF/END IF (single-line IF left alone), FOR/NEXT, DO/LOOP, WHILE/WEND, SELECT CASE/CASE/END SELECT, TYPE, DECLARE LIBRARY, and `$IF` metacommands all nest correctly, with continuation (`_`) lines indented and keywords inside strings/comments ignored. It only ever changes leading whitespace, so it can never alter code. Enable with `qb64pe.isFormatEnabled` (keyword casing still follows `qb64pe.formatMode`); runs on format / format-on-save.
+
 ## 0.18.0
 
 - Linting: **live diagnostics as you type**, on by default. The index-driven linter (undefined SUB calls & labels, duplicate definitions, never-read locals) now updates while you edit — not just on save — shown as squiggles and Problems-pane entries, with no compile needed. New rule: **unresolved `$INCLUDE`** files are flagged. Toggle with `qb64pe.isIndexDiagnosticsEnabled`; the compiler lint (Ctrl+Alt+L) is unchanged and complementary.

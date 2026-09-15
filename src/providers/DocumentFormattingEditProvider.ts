@@ -2,6 +2,7 @@
 import * as vscode from "vscode";
 import * as logFunctions from "../logFunctions";
 import { TokenInfo } from "../TokenInfo";
+import { reindentLines } from "../core/indent";
 
 // Code Formatter
 // Seems like a good place to find includes and make the double click to open work.
@@ -46,37 +47,6 @@ export class DocumentFormattingEditProvider implements vscode.DocumentFormatting
 		} else {
 			return false;
 		}
-	}
-
-	/**
-	 * Should the line be indented
-	 * @param lowerLine 
-	 * @returns 
-	 */
-	private shouldIndentLine(lowerLine: string): boolean {
-		lowerLine = lowerLine.replace(/\d+/g, "").trim();
-		return lowerLine.startsWith("if ")
-			|| lowerLine.startsWith("if(")
-			|| lowerLine.startsWith("sub ")
-			|| lowerLine.startsWith("function ")
-			|| lowerLine == "do"
-			|| (lowerLine.startsWith("do ") && lowerLine.indexOf("loop") < 1)
-			|| (lowerLine.startsWith("for ") && lowerLine.indexOf("next") < 1)
-			|| (lowerLine.startsWith("while") && lowerLine.indexOf("wend") < 1)
-			|| lowerLine.startsWith("type ")
-			|| lowerLine.startsWith("select ")
-			|| lowerLine.startsWith("declare dynamic library")
-			|| lowerLine.startsWith("declare library")
-	}
-
-	/**
-	 * Should the line be indent be removed
-	 * @param lowerLine 
-	 * @returns 
-	 */
-	private shouldRemoveLineIndent(lowerLine: string) {
-		lowerLine = lowerLine.replace(/\d+/g, "").trim();
-		return lowerLine == "loop" || lowerLine.startsWith("loop ") || lowerLine.startsWith("end if") || lowerLine == "endif" || lowerLine.startsWith("end sub") || lowerLine == "endsub" || lowerLine.startsWith("end function") || lowerLine == "endfunction" || lowerLine == "next" || lowerLine == "wend" || lowerLine == "end type" || lowerLine == "endtype" || lowerLine == "end select" || lowerLine == "endselect" || lowerLine == "next" || lowerLine.startsWith("next ") || lowerLine.startsWith("end declare") || lowerLine.startsWith("enddeclare");
 	}
 
 	/**
@@ -207,18 +177,15 @@ export class DocumentFormattingEditProvider implements vscode.DocumentFormatting
 			}
 
 			let tokenCache = new Map<string, TokenInfo>();
-			let level: number = 0;
-			let inCase: boolean = false;
-			let inDeclare: boolean = false;
 
+			// Pass 1: format each line's CONTENT (casing/spacing), trimmed of any
+			// indentation. Indentation is applied in pass 2 by the block-aware
+			// core engine, which only ever changes leading whitespace.
+			const contentLines: string[] = [];
 			for (let lineNumber = 0; lineNumber < document.lineCount; lineNumber++) {
-
-				// logFunctions.writeLine(`Line Number: ${lineNumber}`, this.outputChannel);
-
 				if (token.isCancellationRequested) {
 					return null;
 				}
-
 				const originalLine: vscode.TextLine = document.lineAt(lineNumber);
 				let newLine = originalLine.text.trim().replaceAll(" && ", " and ").replaceAll(" || ", "  or ").replaceAll(" != ", " <> ").replaceAll(" == ", " = ");
 				let lowerLine = newLine.toLowerCase();
@@ -227,52 +194,22 @@ export class DocumentFormattingEditProvider implements vscode.DocumentFormatting
 				if (!isSingleLineIf) {
 					if (lowerLine == "endif") {
 						newLine = "end if";
-						lowerLine = newLine.toLowerCase();
 					} else if (lowerLine == "endsub") {
 						newLine = "end sub";
-						lowerLine = newLine.toLowerCase();
 					} else if (lowerLine == "endfunction") {
 						newLine = "end function";
-						lowerLine = newLine.toLowerCase();
 					} else if (lowerLine == "endtype") {
 						newLine = "end type";
-						lowerLine = newLine.toLowerCase();
 					} else if (lowerLine == "endselect") {
 						newLine = "end select";
-						lowerLine = newLine.toLowerCase();
 					} else if (newLine.startsWith("? ")) {
 						newLine = newLine.replace("? ", "print ");
-						lowerLine = newLine.toLowerCase();
 					} else if (lowerLine.startsWith("if ") && lowerLine.indexOf(" then") < 0) {
-						newLine = `${newLine} then`
-						lowerLine = newLine.toLowerCase();
+						newLine = `${newLine} then`;
 					} else if (lowerLine.startsWith("elseif ") && lowerLine.indexOf(" then") < 0) {
-						newLine = `${newLine} then`
-						lowerLine = newLine.toLowerCase();
+						newLine = `${newLine} then`;
 					}
-
-					if (inDeclare && (lowerLine.startsWith("function") || lowerLine.startsWith("sub"))) {
-					} else if (this.shouldIndentLine(lowerLine)) {
-						level++;
-						if (lowerLine.startsWith("declare dynamic library") || (lowerLine.startsWith("declare library"))) {
-							inDeclare = true;
-						}
-					} else if (this.shouldRemoveLineIndent(lowerLine)) {
-						level--;
-						if (lowerLine.startsWith("end declare") || lowerLine.startsWith("enddeclare")) {
-							inDeclare = false;
-						}
-					} else if (lowerLine.startsWith("case ") && !inCase) {
-						inCase = true;
-						level++;
-					}
-
-					if (lowerLine.startsWith("end select") || lowerLine.startsWith("endselect")) {
-						if (inCase) {
-							inCase = false;
-							level--
-						}
-					}
+					lowerLine = newLine.toLowerCase();
 				}
 
 				if (this.shouldProcessLine(lowerLine)) {
@@ -282,11 +219,6 @@ export class DocumentFormattingEditProvider implements vscode.DocumentFormatting
 						} while (newLine.endsWith(";"))
 					}
 
-					// newLine = newLine.replaceAll(/\s+,|\(|\)|\+|-|=|<|>|\[|\]|{|}|`|;|\*|:\s+/g, " $1 ");
-					// This just puts $1 in the code not the match WTF 😒
-
-					// let matches = lineOfCode.matchAll(/(?<=rgb|rgb32)(\()[ 0-9]+(,[ 0-9]+)+(,[ 0-9]+)+(\))/ig);
-
 					if (lowerLine.indexOf('"') > -1 && !lowerLine.match(/(?<='|rem)"/i)) {
 						const start: number = newLine.indexOf('"') - 1;
 						let words: string[] = this.addOperatorSpaces(newLine.substring(0, start)).split(" ");
@@ -294,36 +226,24 @@ export class DocumentFormattingEditProvider implements vscode.DocumentFormatting
 						const work = this.cleanUpCode(words.join(" "));
 						newLine = work + newLine.substring(start);
 					} else {
-
 						newLine = this.addOperatorSpaces(newLine);
-						//}
-
 						let words: string[] = newLine.split(" ");
 						this.formatArray(words, tokenCache);
 						newLine = this.cleanUpCode(words.join(" "));
 					}
 
 					newLine = newLine.trim();
-
-					if (lineNumber > 0 && document.lineAt(lineNumber - 1).text.trim().endsWith("_")) {
-						newLine = `${indent}${newLine}`;
-					}
 				}
 
-				if (level > 0) {
-					let indentAmount: number = level;
-					if (!isSingleLineIf && (this.shouldIndentLine(lowerLine) || lowerLine.startsWith("case ") || lowerLine.startsWith("else"))) {
-						if (!inDeclare || (inDeclare && lowerLine.startsWith("declare"))) {
-							indentAmount = level - 1;
-						}
-					}
-					if (indentAmount > 0) {
-						newLine = `${indent.repeat(indentAmount)}${newLine}`;
-					}
-				}
+				contentLines.push(newLine);
+			}
 
-				if (newLine !== originalLine.text) {
-					retvalue.push(vscode.TextEdit.replace(originalLine.range, newLine));
+			// Pass 2: block-aware indentation (leading whitespace only).
+			const indentedLines = reindentLines(contentLines, indent);
+			for (let lineNumber = 0; lineNumber < document.lineCount; lineNumber++) {
+				const originalLine = document.lineAt(lineNumber);
+				if (indentedLines[lineNumber] !== originalLine.text) {
+					retvalue.push(vscode.TextEdit.replace(originalLine.range, indentedLines[lineNumber]));
 				}
 			}
 
