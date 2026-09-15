@@ -58,6 +58,9 @@ Two layers:
      → sigil-insensitive routine fallback → workspace), member chains (`a.b.c`),
      `findDefinition`, `findOccurrences` (re-resolves every hit; declaration/write/read),
      `symbolsInScope` (completion candidates), `memberContextAt`, `searchSymbols`.
+   - `wikitext.ts` converts a QB64PE wiki page (MediaWiki source) to the bundled help's
+     markdown shape; `helpFiles.ts` decodes the mangled help filenames. Together they back
+     live hover help.
    - `outline.ts`, `folding.ts`, `semantic.ts`, `rename.ts`, `callHierarchy.ts`,
      `diagnostics.ts`, `format.ts` — feature models (outline tree, folding ranges, semantic
      tokens, rename edits, call hierarchy, opt-in diagnostics, Markdown/labels) built on the
@@ -71,8 +74,12 @@ Two layers:
    and command. Adding a language feature = a core module with tests + a small provider +
    one `register*` call.
 
-Other pieces: `TokenInfo.ts` resolves **built-in keyword** help from the ~1050 offline wiki
-`.md` files in `help/` (case-insensitive, tries sigil/underscore variants; falls back to the
+Other pieces: hover keyword help is served by `providers/HelpService.ts`, which converts the
+user's *installed* QB64PE wiki source (`<installPath>/internal/help/*.txt`) via `core/wikitext`
+and caches it (memory + globalStorage by mtime), falling back to the bundled `help/*.md`
+snapshot (read from the extension's own `help/`, so it works without `helpPath` set). The shared
+hover stylesheet is `media/hover.css`. `TokenInfo.ts` still resolves **built-in keyword** help for
+F1 from the ~1050 offline wiki `.md` files in `help/` (case-insensitive, tries sigil/underscore variants; falls back to the
 online wiki). Syntax highlighting is the TextMate grammar in `syntaxes/`
 (semantic tokens only cover user-defined names, so the two do not fight). `lintFunctions.ts`
 shells out to the compiler and parses its output into diagnostics. `todoFunctions.ts` feeds

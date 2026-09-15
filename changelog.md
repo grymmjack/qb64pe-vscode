@@ -19,6 +19,7 @@ All notable changes to the "QB64 PE" extension will be documented in this file.
   - Member completion: typing `variable.` offers the fields of its TYPE (nested UDTs too).
   - In-scope user symbols are ranked first and win over same-named keywords; the list is complete so VS Code's fuzzy matching works; documentation loads lazily (faster activation).
 - Hover / signature help
+  - Keyword hover help is now converted live from your installed QB64PE wiki source (`<installPath>/internal/help/*.txt`) and cached (in memory and on disk, re-converted only when QB64PE updates), so it always matches your installed version. Falls back to the bundled help when no install is found; toggle with `qb64pe.isLiveHelpEnabled`. The live conversion fixes the bundled set's defects: type sigils are no longer mangled (`LEFT$` not `LEFT\$`) and coloured example output is preserved.
   - Hover shows the declaration, docs, parameters (by value/reference), TYPE members and location; works for parameters, fields, labels and `DECLARE LIBRARY` routines.
   - Signature help understands type sigils and statement-style SUB calls (`Show a, b`).
 - Parser
