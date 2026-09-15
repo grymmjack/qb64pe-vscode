@@ -2,6 +2,10 @@
 
 All notable changes to the "QB64 PE" extension will be documented in this file.
 
+## 0.20.1
+
+- Linting: log each index-diagnostics pass (file → problem count) to the QB64PE lint output channel, to help diagnose "no problems shown" reports.
+
 ## 0.20.0
 
 - Help: new command **"QB64PE: Build Help Pages"** converts all of your installed QB64PE help into rendered pages once, so cross-page links in hover help and F1 pages actually open (previously a link like `[PSET](PSET.md)` pointed at the .txt source folder and failed). Hover/F1 links now resolve against that built folder. Run it once after setting qb64pe.installPath.

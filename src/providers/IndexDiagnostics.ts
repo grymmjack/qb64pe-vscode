@@ -53,11 +53,24 @@ export class IndexDiagnostics implements vscode.Disposable {
       return;
     }
     try {
+      let scanned = 0;
       for (const document of vscode.workspace.textDocuments) {
         if (document.languageId !== "QB64PE" || document.uri.scheme !== "file") continue;
+        scanned++;
         this.workspaceIndex.ensureDocument(document);
-        const diagnostics = diagnose(this.workspaceIndex.index, this.workspaceIndex.keyOf(document));
+        const key = this.workspaceIndex.keyOf(document);
+        const diagnostics = diagnose(this.workspaceIndex.index, key);
         this.collection.set(document.uri, diagnostics.map(toVsDiagnostic));
+        logFunctions.writeLine(
+          `IndexDiagnostics: ${document.fileName} → ${diagnostics.length} problem(s)`,
+          this.outputChannel
+        );
+      }
+      if (scanned === 0) {
+        logFunctions.writeLine(
+          "IndexDiagnostics: no open QB64PE 'file' documents to scan.",
+          this.outputChannel
+        );
       }
     } catch (error) {
       logFunctions.writeLine(`ERROR in IndexDiagnostics: ${error}`, this.outputChannel);
