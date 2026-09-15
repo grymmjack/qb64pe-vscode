@@ -133,6 +133,38 @@ describe("QB64PE providers (extension host)", function () {
     assert.ok(ranges.some((r) => r.start === line(basics, "SUB InitGame") && r.end === line(basics, "END SUB") - 1));
   });
 
+  it("hover uses live-converted help from the installed QB64PE source", async () => {
+    const install = path.resolve(__dirname, "../../../../test/fixtures/qb64pe-install");
+    const cfg = vscode.workspace.getConfiguration("qb64pe");
+    await cfg.update("installPath", install, vscode.ConfigurationTarget.Global);
+    try {
+      const kw = path.join(os.tmpdir(), `qb64pe-help-${process.pid}.bas`);
+      fs.writeFileSync(kw, "c = _RGB32(255, 0, 0)\n");
+      const doc = await vscode.workspace.openTextDocument(kw);
+      const hovers = await vscode.commands.executeCommand<vscode.Hover[]>(
+        "vscode.executeHoverProvider", doc.uri, new vscode.Position(0, 6));
+      const text = (hovers[0].contents[0] as vscode.MarkdownString).value;
+      assert.ok(text.includes("## [_RGB32]"), "live title header");
+      assert.ok(text.includes("#### PARAMETERS"), "converted section");
+      assert.ok(text.includes('<span style="color:#'), "coloured output preserved");
+      assert.ok(text.includes("<style"), "hover style header prepended");
+      assert.ok(!text.includes("{{") && !text.includes("[["), "no raw wiki markup");
+      fs.unlinkSync(kw);
+
+      // A keyword the install does not ship falls back to the bundled snapshot.
+      const kw2 = path.join(os.tmpdir(), `qb64pe-help2-${process.pid}.bas`);
+      fs.writeFileSync(kw2, "LOCATE 1, 1\n");
+      const doc2 = await vscode.workspace.openTextDocument(kw2);
+      const h2 = await vscode.commands.executeCommand<vscode.Hover[]>(
+        "vscode.executeHoverProvider", doc2.uri, new vscode.Position(0, 1));
+      assert.ok(h2.length > 0 && (h2[0].contents[0] as vscode.MarkdownString).value.length > 0,
+        "bundled fallback still provides LOCATE help");
+      fs.unlinkSync(kw2);
+    } finally {
+      await cfg.update("installPath", undefined, vscode.ConfigurationTarget.Global);
+    }
+  });
+
   it("call hierarchy", async () => {
     const [item] = await vscode.commands.executeCommand<vscode.CallHierarchyItem[]>(
       "vscode.prepareCallHierarchy", basics.uri, pos(basics, "FUNCTION Add", 9));

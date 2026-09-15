@@ -1,10 +1,9 @@
 "use strict";
 import * as vscode from "vscode";
-import * as path from "path";
 import * as commonFunctions from "../commonFunctions";
 import * as logFunctions from "../logFunctions";
-import { TokenInfo } from "../TokenInfo";
 import { WorkspaceSymbolIndex } from "./WorkspaceSymbolIndex";
+import { HelpService } from "./HelpService";
 import { resolveAt } from "../core/queries";
 import { symbolMarkdown } from "../core/format";
 import { toVsRange } from "./convert";
@@ -14,7 +13,10 @@ export class HoverProvider implements vscode.HoverProvider {
     logFunctions.channelType.hoverProvider
   );
 
-  constructor(private readonly workspaceIndex: WorkspaceSymbolIndex) {}
+  constructor(
+    private readonly workspaceIndex: WorkspaceSymbolIndex,
+    private readonly helpService: HelpService
+  ) {}
 
   async provideHover(
     document: vscode.TextDocument,
@@ -41,24 +43,19 @@ export class HoverProvider implements vscode.HoverProvider {
         );
       }
 
-      // Otherwise built-in keyword help from the offline wiki.
+      // Otherwise built-in keyword help: live-converted from the installed
+      // QB64PE wiki source when available, else the bundled snapshot.
       const token = commonFunctions.getQB64WordFromDocument(document, position);
       if (!token) {
         return null;
       }
-      const keywordInfo = new TokenInfo(
+      const help = this.helpService.getHoverHelp(
         token,
-        document.lineAt(position.line).text,
-        this.outputChannel
+        document.lineAt(position.line).text
       );
-      if (keywordInfo.offlinehelp.length > 0) {
-        const markdownString = new vscode.MarkdownString(
-          keywordInfo.getHoverText(),
-          true
-        );
-        const helpPath: string = config.get("helpPath");
-        const helpFile = path.join(helpPath).replaceAll("\\", "/");
-        markdownString.baseUri = vscode.Uri.file(helpFile + "/");
+      if (help) {
+        const markdownString = new vscode.MarkdownString(help.markdown, true);
+        markdownString.baseUri = help.baseUri;
         markdownString.isTrusted = true;
         markdownString.supportHtml = true;
         return new vscode.Hover(markdownString);

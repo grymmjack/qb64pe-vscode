@@ -18,6 +18,7 @@ import { DocumentSymbolProvider } from "./providers/DocumentSymbolProvider";
 import { DocumentFormattingEditProvider } from "./providers/DocumentFormattingEditProvider";
 // import { DebugAdapterDescriptorFactory } from "./providers/DebugAdapterDescriptorFactory";
 import { HoverProvider } from "./providers/HoverProvider";
+import { HelpService } from "./providers/HelpService";
 import { CompletionItemProvider } from "./providers/CompletionItemProvider";
 import { InlineCompletionItemProvider } from "./providers/InlineCompletionItemProvider";
 import { SignatureHelpProvider } from "./providers/SignatureHelpProvider";
@@ -127,6 +128,7 @@ export async function activate(context: vscode.ExtensionContext) {
   // One workspace-wide symbol index shared by every language provider.
   const workspaceIndex = new WorkspaceSymbolIndex();
   context.subscriptions.push(workspaceIndex);
+  const helpService = new HelpService(context);
 
   context.subscriptions.push(
     vscode.languages.registerReferenceProvider(
@@ -149,7 +151,7 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.languages.registerHoverProvider(
       documentSelector,
-      new HoverProvider(workspaceIndex)
+      new HoverProvider(workspaceIndex, helpService)
     )
   );
   context.subscriptions.push(

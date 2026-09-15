@@ -228,6 +228,11 @@
           "type": "boolean",
           "default": false,
           "description": "Diagnostics|Enable: Report undefined SUB calls and labels, duplicate definitions and never-read locals from the symbol index, without compiling. Experimental."
+        },
+        "qb64pe.isLiveHelpEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Help|Enable: Convert hover/keyword help live from the installed QB64PE wiki source (installPath/internal/help) and cache it, instead of the bundled snapshot. Falls back to the bundled help when no install is found."
         }
       }
     },
