@@ -169,10 +169,11 @@ export class QB64DebugSession extends LoggingDebugSession {
       this.fail(response, "Compilation failed — see the debug console.");
       return;
     }
-    if (!fs.existsSync(exePath)) {
+    const producedExe = this.findProducedExe(exePath);
+    if (!producedExe) {
       this.fail(
         response,
-        `Compiler reported success but no executable was produced at ${exePath}.`
+        `Compiler reported success but no executable was found near ${exePath}.`
       );
       return;
     }
@@ -190,7 +191,7 @@ export class QB64DebugSession extends LoggingDebugSession {
       }
     }, timeoutMs);
 
-    this.spawnDebuggee(exePath, port);
+    this.spawnDebuggee(producedExe, port);
     this.sendResponse(response);
   }
 
@@ -658,7 +659,22 @@ export class QB64DebugSession extends LoggingDebugSession {
   private exePathFor(sourceFile: string): string {
     const dir = path.dirname(sourceFile);
     const base = path.basename(this.program, path.extname(this.program));
-    return path.join(dir, base + ".exe");
+    // QB64PE appends .exe on Windows only; Linux/macOS produce a bare name.
+    const name = process.platform === "win32" ? base + ".exe" : base;
+    return path.join(dir, name);
+  }
+
+  /** Find the executable the compiler actually produced (handles .exe or not). */
+  private findProducedExe(exePath: string): string | undefined {
+    const withoutExe = exePath.replace(/\.exe$/i, "");
+    const candidates = [exePath, withoutExe, withoutExe + ".exe"];
+    return candidates.find((p) => {
+      try {
+        return fs.existsSync(p) && fs.statSync(p).isFile();
+      } catch {
+        return false;
+      }
+    });
   }
 
   private compile(
