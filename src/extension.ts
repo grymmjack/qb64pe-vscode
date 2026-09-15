@@ -24,6 +24,7 @@ import { SignatureHelpProvider } from "./providers/SignatureHelpProvider";
 import { RenameProvider } from "./providers/RenameProvider";
 import { DocumentHighlightProvider } from "./providers/DocumentHighlightProvider";
 import { WorkspaceSymbolProvider } from "./providers/WorkspaceSymbolProvider";
+import { FoldingRangeProvider } from "./providers/FoldingRangeProvider";
 import { WorkspaceSymbolIndex } from "./providers/WorkspaceSymbolIndex";
 import { TodoTreeProvider } from "./TodoTreeProvider";
 
@@ -191,6 +192,13 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.languages.registerWorkspaceSymbolProvider(
       new WorkspaceSymbolProvider(workspaceIndex)
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.languages.registerFoldingRangeProvider(
+      documentSelector,
+      new FoldingRangeProvider()
     )
   );
 
