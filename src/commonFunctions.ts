@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { identifierAt } from "./core/lexer";
 
 /**
  * Gets a new vscode.DocumentSelector
@@ -90,37 +91,18 @@ export function getQB64Word(editor: vscode.TextEditor): string {
 }
 
 /**
- * * Gets the QB64PE word at the current position in the passed document
+ * Gets the QB64PE identifier (with its type sigil, e.g. `count%`, `name$`)
+ * at the given position. Returns "" when the position is inside a comment or
+ * string literal, or not on an identifier. Dots split member paths, so on
+ * `player.pos` the result is the single segment under the cursor.
  * @param document
  * @param position
- * @returns
  */
 export function getQB64WordFromDocument(
   document: vscode.TextDocument,
   position: vscode.Position
 ): string {
-  const stop: string = " (+-=<>[{}]`);:.,%#`&!\t";
   const lineOfCode = document.lineAt(position.line).text;
-  //const cursorPosition = position.character + 1;
-  const cursorPosition = position.character; // + 1;
-  let retvalue: string = "";
-
-  // Get the first part of the string
-  for (let i: number = cursorPosition - 1; i >= 0; i--) {
-    let currentChar = lineOfCode.substring(i - 1, i);
-    if (currentChar == "" || stop.indexOf(currentChar) > -1) {
-      break;
-    }
-    retvalue = currentChar + retvalue;
-  }
-
-  // Get the last part of the string
-  for (let i: number = cursorPosition; i <= lineOfCode.length; i++) {
-    let currentChar = lineOfCode.substring(i - 1, i);
-    if (currentChar == "" || stop.indexOf(currentChar) > -1) {
-      break;
-    }
-    retvalue = retvalue + currentChar;
-  }
-  return retvalue.replaceAll("'", "");
+  const identifier = identifierAt(lineOfCode, position.character);
+  return identifier ? identifier.word : "";
 }
