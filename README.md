@@ -1,40 +1,228 @@
 # QB64PE (Phoenix Edition) for Visual Studio Code
 
-A VSCode extension that adds support for [QB64 PE](https://www.qb64phoenix.com).
+A Visual Studio Code extension that turns VS Code into a full IDE for
+[QB64 PE](https://www.qb64phoenix.com): smart editing, live help, linting,
+formatting, and a real source-level debugger.
 
-> This fork was created with permission from LordDurus to enhance and extend the vscode extension to support QB64PE.
+> This fork was created with permission from LordDurus to enhance and extend the
+> VS Code extension to support QB64PE.
 
-## Get it from open-vsx.org
-> https://open-vsx.org/extension/grymmjack/qb64pe
+**Get it from open-vsx.org:** https://open-vsx.org/extension/grymmjack/qb64pe
 
-## Features
+---
 
-- **Language intelligence** powered by a workspace-wide symbol index that follows `$INCLUDE` chains and understands QB64PE scope (locals, parameters, `SHARED`, module level, TYPE members):
-  - Go to Definition (`F12`) — including TYPE fields (`p.pos.x`), labels, `DECLARE LIBRARY` routines, and `'$INCLUDE:'…'` / `$EXEICON:'…'` files
-  - Find All References / Peek References across every file of the program (never matches inside comments or strings)
-  - Rename Symbol (`F2`) across the program, keeping your type sigils honest
-  - Highlight occurrences of the symbol under the cursor (reads vs writes)
-  - Outline & breadcrumbs with real hierarchy: routines → parameters and locals, TYPEs → fields, includes, labels
-  - Go to Symbol in Workspace (`Ctrl+T`)
-  - Block-aware code folding (SUB/FUNCTION, TYPE, IF, SELECT, DO, FOR, WHILE, `$IF`, comment blocks)
-  - Semantic highlighting of user-defined routines, types, variables, parameters, fields and labels
-  - Call Hierarchy (Show Call Hierarchy / Peek Call Hierarchy) for SUBs and FUNCTIONs
-  - Optional diagnostics without compiling (`qb64pe.isIndexDiagnosticsEnabled`): undefined SUB calls and labels, duplicate definitions, never-read locals
-- **Intelligent Code Completion**: 500+ QB64PE keywords (all modern underscore-prefixed functions) plus everything you defined that is in scope — ranked first — and **member completion** (`variable.` lists the fields of its TYPE)
-- **Hover & signature help** for your own SUBs/FUNCTIONs (declaration, doc comments, parameters, return type, TYPE members) and for built-in keywords — converted live from your installed QB64PE help and cached, so it matches your version (falls back to the bundled help; toggle with `qb64pe.isLiveHelpEnabled`)
-- **Inline Code Templates**: multi-line completions for game loops, graphics setup, input handling, and more
-- `F1` to _open help_ for the keyword under the cursor — the live-converted page (or bundled/online fallback) in a Markdown preview; `Ctrl+F1` keyword list alphabetical; `Shift+F1` keyword list by usage
-- **Source-level debugging** (`F5`): set breakpoints in your `.bas`, press `F5`, and the program stops on that line. Step in / over / out (`F11` / `F10` / `Shift+F11`), a real call stack across your SUBs/FUNCTIONs, jump-to-cursor, pause and stop. It works by compiling with `$DEBUG` (auto-added if missing) and hosting QB64PE's own `vwatch` debugger — no `launch.json` needed. Use `Ctrl+F5` (Run Without Debugging) for the plain terminal build & run. See [debugging notes](#debugging-notes) below.
-- `ctrl+shift+b` to build the current file
-- Syntax highlighting for QB64PE (up to the latest version)
-- Highlights TODOs in the comments (own view in the Explorer)
-- Box around (\_)rgb(32) commands the color of the command
-- `ctrl+alt+l` to run the lint (compiler diagnostics) — experimental, please report issues
-- Enhanced snippets for modern QB64PE development
+## Contents
 
-### Documenting your own code
+- [Install & configure](#install--configure)
+- [Features at a glance](#features-at-a-glance)
+- [Language intelligence](#language-intelligence)
+- [Hover help & F1 help](#hover-help--f1-help)
+  - [Preparing offline help](#preparing-offline-help)
+- [Live linting](#live-linting)
+- [Formatting](#formatting)
+- [Debugging](#debugging)
+- [Documenting your own code](#documenting-your-own-code)
+- [Settings reference](#settings-reference)
+- [Requirements, bugs, license](#requirements)
 
-Comment lines directly above a `SUB`, `FUNCTION`, `TYPE` or `CONST` become its hover/completion documentation, and `' @param name description` lines document parameters:
+---
+
+## Install & configure
+
+1. Install [QB64 PE](https://www.qb64phoenix.com).
+2. Install this extension (from open-vsx, or a `.vsix` via **Extensions → … → Install from VSIX**).
+3. Point the extension at your QB64PE install. Open **Settings** and set:
+
+| Setting | What it is |
+|---|---|
+| `qb64pe.installPath` | Your QB64PE folder (the one containing the compiler and `internal/help`). |
+| `qb64pe.compilerPath` | The QB64PE compiler executable (used for building, linting and debugging). |
+| `qb64pe.helpPath` | *(optional)* An explicit help folder, if not under `installPath`. |
+
+Most features degrade gracefully when these are unset, but building, linting,
+debugging and live help need them.
+
+---
+
+## Features at a glance
+
+- **Language intelligence** — completion, hover, go-to-definition, references, rename, outline, folding, semantic highlighting, call hierarchy, workspace symbols. Everything follows `$INCLUDE` chains and understands QB64PE scope.
+- **Live help** — keyword help converted from your installed QB64PE wiki, on hover and on `F1`, with clickable cross-page links.
+- **Live linting** — as-you-type problems (undefined subs/labels, duplicate definitions, unread locals, missing includes), no compile required.
+- **Formatting** — block indentation + keyword casing, mirroring the QB64PE IDE's "Code Layout" options.
+- **Source-level debugger** — breakpoints, stepping, call stack, and live variable inspection across your whole multi-file program.
+
+---
+
+## Language intelligence
+
+Powered by a workspace-wide symbol index that follows `$INCLUDE` chains and
+understands scope (locals, parameters, `SHARED`, module level, TYPE members):
+
+- **Go to Definition** (`F12`) — locals, parameters, SUB/FUNCTION (with or without sigil), TYPEs, TYPE fields (`p.pos.x`), CONSTs, labels, `DECLARE LIBRARY` routines, and `'$INCLUDE:'…'` / `$EXEICON:'…'` files.
+- **Find All References / Peek References** — across every file of the program, never inside comments or strings.
+- **Rename Symbol** (`F2`) — across the whole program, keeping type sigils correct.
+- **Completion** — 500+ keywords plus your in-scope symbols (ranked first), and member completion (`variable.` lists the TYPE's fields).
+- **Signature help**, **document highlights** (reads vs writes), **Outline/breadcrumbs**, **Go to Symbol in Workspace** (`Ctrl+T`), **Call Hierarchy**, **block folding**, and **semantic highlighting** of your own names.
+
+---
+
+## Hover help & F1 help
+
+- **Hover** a keyword to see its help inline.
+- **`F1`** opens the full help page for the keyword under the cursor.
+- **`Ctrl+F1`** opens the alphabetical keyword list; **`Shift+F1`** the by-usage list.
+
+Help is **converted live from your installed QB64PE wiki source**
+(`<installPath>/internal/help/*.txt`) so it always matches your version, cached
+so it's fast, and it falls back to a bundled snapshot (and then the online wiki)
+when no install is found. Toggle with `qb64pe.isLiveHelpEnabled`.
+
+### Preparing offline help
+
+Help pages link to each other (e.g. `PSET` links to `POINT`). For those
+**cross-page links to open**, the linked pages must already be rendered. Do this
+once, like the QB64PE IDE's "download help":
+
+1. Make sure `qb64pe.installPath` is set (so the `.txt` help source is found).
+2. Open the Command Palette (`Ctrl+Shift+P`) → **“QB64PE: Build Help Pages”**.
+3. A progress bar renders every help page to markdown once.
+
+After that, clicking a link in any hover or `F1` page opens that page. You only
+need to re-run it when you update QB64PE (to pick up new/changed help).
+
+> Individual pages are also rendered on demand when you hover/`F1` them, so help
+> works without this step — building just makes *every* cross-link resolve.
+
+---
+
+## Live linting
+
+Problems are reported **as you type**, with no compilation, as squiggles and
+Problems-pane entries. It catches:
+
+| Rule | Severity | Example |
+|---|---|---|
+| Undefined `GOTO`/`GOSUB` label | error | `GOTO NoSuchLabel` |
+| Call to an undefined SUB | warning | `MysterySub 1, 2` |
+| Duplicate SUB/FUNCTION/TYPE/CONST/label | error | two `SUB Draw` |
+| Local never read | hint (faded) | `DIM t: t = 1` (never used) |
+| Unresolved `$INCLUDE` | warning | `'$INCLUDE:'missing.bi'` |
+
+It is deliberately conservative (it prefers missing a problem to a false one)
+and understands includes, builtins, assignments, `FOR` counters, TYPE fields and
+`DECLARE LIBRARY` prototypes, so those are not flagged.
+
+- On by default; toggle with **`qb64pe.isIndexDiagnosticsEnabled`**.
+- This is *not* a syntax checker — for full compiler errors run the compiler lint
+  with **`Ctrl+Alt+L`** (or `qb64pe.isLintOnSaveEnabled`).
+
+---
+
+## Formatting
+
+**Format Document** (`Shift+Alt+F`), or format-on-save, tidies your code. It has
+two independent parts, mirroring the QB64PE IDE's *Code Layout* dialog:
+
+**Indentation** (safe — only ever changes leading whitespace, never code):
+
+| Setting | IDE equivalent | Default |
+|---|---|---|
+| `qb64pe.isFormatIndentEnabled` | Auto Indent lines | on |
+| `qb64pe.formatIndentSize` | Indent Spacing (0 = follow editor Tab Size) | 0 |
+| `qb64pe.formatIndentSubs` | Indent SUBs and FUNCTIONs | on |
+
+It nests `SUB`/`FUNCTION`, block `IF`/`ELSE`/`ELSEIF`, `FOR`, `DO`, `WHILE`,
+`SELECT CASE`/`CASE`, `TYPE`, `DECLARE LIBRARY` and `$IF` blocks, leaves
+single-line `IF`s alone, indents continuation (`_`) lines, and ignores keywords
+inside strings and comments.
+
+**Keyword casing & spacing** (opt-in, rewrites code text):
+
+| Setting | IDE equivalent | Default |
+|---|---|---|
+| `qb64pe.isFormatEnabled` | Auto Single-spacing | off |
+| `qb64pe.formatMode` | Show Keywords as UPPER / Mixed / lower / No Change | Lower Case |
+
+---
+
+## Debugging
+
+A real source-level debugger that bridges VS Code to QB64PE's own `vwatch`
+debugger. **No `launch.json` needed.**
+
+### Quick start
+
+1. Set `qb64pe.compilerPath`.
+2. Click in the gutter to set a breakpoint on an executable line.
+3. Press **`F5`** (choose **“QB64PE: Debug”** if prompted).
+
+The extension compiles your program with `$DEBUG` (added automatically to a
+temporary copy if you don't have it — your line numbers are preserved), runs it,
+and stops at your breakpoint. Use **`Ctrl+F5`** (Run Without Debugging) for a
+plain build & run in the terminal.
+
+### Stepping & call stack
+
+Step **In** (`F11`), **Over** (`F10`), **Out** (`Shift+F11`), Continue (`F5`),
+Pause, Stop, and right-click **Jump to Cursor**. The **Call Stack** shows your
+SUB/FUNCTION frames mapped to the right file and line.
+
+### Inspecting variables
+
+While stopped, the **Variables** panel shows live values:
+
+- **Locals** (current routine), **Module & Globals**, and **Constants**.
+- Scalars of every type (INTEGER, LONG, SINGLE, DOUBLE, STRING, `_BYTE`, `_INTEGER64`, `_OFFSET`, `_FLOAT`, unsigned variants).
+- **TYPE variables expand** to show their fields (nested TYPEs too).
+- **Colour-looking values** get a readable hint, e.g. `fgColor = 4294638330  (#FAFAFA A:255)`.
+- **Hover** a variable in the editor, or use the **Watch** panel.
+- **Arrays** are read by index from Watch/hover: `balls(3)`, `grid(2, 4)`, and members like `player.score`.
+
+### Conditional & hit-count breakpoints
+
+Right-click a breakpoint → **Edit Breakpoint** and add:
+
+- an **Expression** — e.g. `x > 5`, `count = 10`, `name$ = "hi"` (stops only when true), or
+- a **Hit Count** — e.g. `5`, `>5`, `%3`.
+
+### Multi-file (`$INCLUDE`) debugging
+
+Breakpoints, stepping, the call stack and variables all work **inside your
+`.bi`/`.bm` include files**, not just the main file — the extension flattens your
+whole `$INCLUDE` graph before compiling and maps every line back to its real
+file. (This is something the QB64PE IDE's own debugger can't do.)
+
+### Faster repeat runs (cached builds)
+
+If nothing changed since your last debug run, the extension **reuses the previous
+build instead of recompiling** — repeat sessions of large projects start almost
+instantly. Exact detection (any source change recompiles). Toggle with
+`qb64pe.debug.cacheBuild`.
+
+### Debug settings
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `qb64pe.debug.basePort` | 9000 | TCP port the debugger hosts on. |
+| `qb64pe.debug.autoAddDebug` | on | Add `$DEBUG` to a temp copy if missing. |
+| `qb64pe.debug.timeoutMs` | 15000 | Wait for the program to connect back. |
+| `qb64pe.debug.cacheBuild` | on | Reuse the build when source is unchanged. |
+| `qb64pe.debug.trace` | on | Log the DAP ↔ vwatch exchange to the Debug Console. |
+
+### Known limits
+
+- Breakpoints bind on **executable** lines; a bare declaration (e.g. `DIM x`) has no code to stop on.
+- Arrays are inspected **by index via Watch** (`arr(i)`) because the runtime doesn't expose array bounds.
+- Setting a variable's value from the panel, and skip-line decorations, aren't implemented yet.
+
+---
+
+## Documenting your own code
+
+Comment lines directly above a `SUB`, `FUNCTION`, `TYPE` or `CONST` become its
+hover/completion documentation, and `' @param name description` lines document
+parameters:
 
 ```QB64PE
 ' Moves the player and returns the new x position.
@@ -43,53 +231,47 @@ Comment lines directly above a `SUB`, `FUNCTION`, `TYPE` or `CONST` become its h
 FUNCTION MovePlayer% (p AS Player, dx AS INTEGER)
 ```
 
-### Debugging notes
+---
 
-The debugger drives QB64PE's built-in `vwatch` protocol, so it inherits vwatch's
-scope:
+## Settings reference
 
-- **Breakpoints and stepping work on lines in the file you launch** (the main
-  module) — including SUBs/FUNCTIONs written in that same file.
-- **Breakpoints inside `$INCLUDE`d `.bi`/`.bm` files do not bind** — QB64PE only
-  instruments main-module lines (the official IDE has the same limit). Such
-  breakpoints are shown greyed-out with a reason, and the call stack still
-  resolves routines defined in includes to the right file.
-- **The Variables/Watch panel lists the names and declared types in scope** (and
-  real values for `CONST`s), but **live variable *values* are not shown yet**:
-  reading them needs per-variable storage indexes that the QB64PE compiler
-  assigns internally and does not emit as a manifest. This is the one piece the
-  official IDE can do that we can't without a compiler change.
-- Your program needs `$DEBUG`; if it's missing, a temporary copy with `$DEBUG`
-  appended is compiled (your line numbers are preserved). Toggle with
-  `qb64pe.debug.autoAddDebug`. Ports and timeout: `qb64pe.debug.*`.
+All settings live under the `qb64pe.*` namespace (Settings → search "QB64PE").
+The most-used ones:
+
+- **Paths:** `installPath`, `compilerPath`, `helpPath`
+- **Help:** `isLiveHelpEnabled`, `isOpenOnLineHelpEnabled`, `isOpenHelpInEditModeEnabled`
+- **Linting:** `isIndexDiagnosticsEnabled`, `isLintOnSaveEnabled`
+- **Formatting:** `isFormatIndentEnabled`, `formatIndentSize`, `formatIndentSubs`, `isFormatEnabled`, `formatMode`
+- **Debugging:** `debug.basePort`, `debug.autoAddDebug`, `debug.timeoutMs`, `debug.cacheBuild`, `debug.trace`
+
+Also: `ctrl+shift+b` builds the current file; TODOs are collected in an Explorer
+view; `(_)RGB32` calls get a colour swatch in the gutter.
+
+---
 
 ## Requirements
 
 - [QB64 PE](https://www.qb64phoenix.com) installed.
-- Latest _vsix_ installed from [here](https://github.com/grymmjack/qb64pe-vscode/tree/main/releases).
+- Latest `.vsix` from the [releases](https://github.com/grymmjack/qb64pe-vscode) or open-vsx.
 
-## Get Started Writing QB64PE with VS Code
+## Get started writing QB64PE
 
-- [Wiki](https://qb64phoenix.com/qb64wiki)
+- [QB64PE Wiki](https://qb64phoenix.com/qb64wiki)
 
-## Found a Bug?
+## Found a bug?
 
-Please utilize the [Issues](https://github.com/grymmjack/qb64pe-vscode/issues) and file a new one.
+Please open an [issue](https://github.com/grymmjack/qb64pe-vscode/issues).
 
 ## License
 
-The VS Code for QB64PE extension is subject to these license terms. The source code to this extension is available on https://github.com/grymmjack/qb64pe-vscode and licensed under the [MIT license](https://github.com/grymmjack/qb64pe-vscode/blob/main/LICENSE).
+MIT. Source at https://github.com/grymmjack/qb64pe-vscode, licensed under the
+[MIT license](https://github.com/grymmjack/qb64pe-vscode/blob/main/LICENSE).
 
 ## Acknowledgments
 
-- This QB64PE (Phoenix Edition) version of the vscode extension is based on work completed by [Lord Durus](https://github.com/grymmjack/qb64pe-vscode/commits?author=LordDurus).
-- Extensions Highlighting: based on: https://github.com/sorucoder/freebasic-vscode-extension
-- Syntax coloring is based on: https://github.com/microsoft/vscode/blob/main/extensions/vb/syntaxes/asp-vb-net.tmlanguage.json
-- OutLine based on: https://github.com/svaberg/SWMF-grammar
-- The snippets came from https://github.com/microsoft/vscode/blob/main/extensions/vb/snippets/vb.code-snippets
-  - They have been edited for QB64
-- Followed for Decorations: https://vscode.rocks/decorations/
-- The todo list icon came from: https://www.iconfinder.com/search?q=todo&price=free&style=outline&license=gte__1
-- I just straight up stole the core of F5 anything and baked it in to get F5 working with out external extensions
-  - https://github.com/discretegames/f5anything
-- To get an absolute from a relative is used code based off of https://www.geeksforgeeks.org/convert-relative-path-url-to-absolute-path-url-using-javascript/
+- Based on work by [Lord Durus](https://github.com/grymmjack/qb64pe-vscode/commits?author=LordDurus), including the original debugger groundwork.
+- Syntax/highlighting bases: [freebasic-vscode-extension](https://github.com/sorucoder/freebasic-vscode-extension), [VS Code VB grammar](https://github.com/microsoft/vscode/blob/main/extensions/vb/syntaxes/asp-vb-net.tmlanguage.json), [SWMF-grammar](https://github.com/svaberg/SWMF-grammar).
+- Snippets adapted from [VS Code VB snippets](https://github.com/microsoft/vscode/blob/main/extensions/vb/snippets/vb.code-snippets).
+- F5 build-&-run core from [f5anything](https://github.com/discretegames/f5anything).
+- The `$INCLUDE` flattening approach for multi-file debugging builds on QBFLATTEN / MergeFile ideas by Steve McNeill and Rick Christy.
+- TODO icon from [iconfinder](https://www.iconfinder.com/search?q=todo&price=free&style=outline&license=gte__1); decorations guided by [vscode.rocks](https://vscode.rocks/decorations/).
