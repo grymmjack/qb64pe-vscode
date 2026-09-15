@@ -1,18 +1,35 @@
 import * as vscode from "vscode";
 import * as debugadapter from "@vscode/debugadapter";
+import { QB64DebugSession } from "./QB64DebugSession";
+import { WorkspaceSymbolIndex } from "./WorkspaceSymbolIndex";
 
 var ownTerminal: vscode.Terminal;
 export class DebugAdapterDescriptorFactory implements vscode.DebugAdapterDescriptorFactory {
+	constructor(private readonly workspaceIndex?: WorkspaceSymbolIndex) {}
+
 	createDebugAdapterDescriptor(session: vscode.DebugSession): vscode.ProviderResult<vscode.DebugAdapterDescriptor> {
-		if (!session.configuration.hasOwnProperty("command")) {
-			vscode.window.showErrorMessage(`No command found for QB64PE launch configuration "${session.configuration.name}". Add one like "command": "echo Hello" to your launch.json.`);
-		} else {
+		// Two flavors share the "QB64PE" debug type:
+		//  - a `command` config runs a terminal build & run (the 0.11.1 launcher);
+		//  - a `program` config (F5 "Start Debugging") drives the real vwatch
+		//    debugger via QB64DebugSession.
+		if (session.configuration.hasOwnProperty("command")) {
 			const terminal = this.getTerminal(session.configuration);
 			if (!session.configuration.hasOwnProperty("showTerminal") || session.configuration.showTerminal) {
 				terminal.show();
 			}
 			terminal.sendText(String(session.configuration.command));
+			return new vscode.DebugAdapterInlineImplementation(new DummyDebugSession());
 		}
+
+		if (this.workspaceIndex) {
+			return new vscode.DebugAdapterInlineImplementation(
+				new QB64DebugSession(this.workspaceIndex.index)
+			);
+		}
+
+		vscode.window.showErrorMessage(
+			`QB64PE debugger is not available (symbol index missing). Add a "command" to your launch configuration to build & run instead.`
+		);
 		return new vscode.DebugAdapterInlineImplementation(new DummyDebugSession());
 	}
 
@@ -60,11 +77,22 @@ export class QB64PEDebugConfigurationProvider
 			}
 			config.type = "QB64PE";
 			config.request = "launch";
-			config.name = "QB64PE: Build & Run";
+			config.name = "QB64PE";
 		}
-		if (!config.command) {
+
+		// "Run Without Debugging" (Ctrl+F5) and explicit `command` configs keep
+		// the terminal build & run launcher. "Start Debugging" (F5) with no
+		// command drives the vwatch debugger, so we give it a `program` instead.
+		if (config.command) {
+			return config;
+		}
+		if (config.noDebug) {
 			config.command =
 				"${config:qb64pe.compilerPath} -c ${file} -o ${fileDirname}/${fileBasenameNoExtension}.exe -x; ${fileDirname}/${fileBasenameNoExtension}.exe";
+			return config;
+		}
+		if (!config.program) {
+			config.program = "${file}";
 		}
 		return config;
 	}

@@ -53,13 +53,40 @@
         "runtime": "node",
         "configurationAttributes": {
           "launch": {
-            "required": [
-              "command"
-            ],
             "properties": {
+              "program": {
+                "type": "string",
+                "description": "Debug: the QB64PE source file to compile with $DEBUG and debug. Defaults to the active file.",
+                "default": "${file}"
+              },
+              "compilerPath": {
+                "type": "string",
+                "description": "Debug: path to the QB64PE compiler. Defaults to the qb64pe.compilerPath setting.",
+                "default": "${config:qb64pe.compilerPath}"
+              },
+              "stopOnEntry": {
+                "type": "boolean",
+                "description": "Debug: stop on the program's first executable line.",
+                "default": false
+              },
+              "port": {
+                "type": "number",
+                "description": "Debug: TCP base port the debugger hosts on (the program connects back to it). Defaults to qb64pe.debug.basePort.",
+                "default": 9000
+              },
+              "autoAddDebug": {
+                "type": "boolean",
+                "description": "Debug: if the source lacks $DEBUG, compile a temporary copy with it appended. Defaults to qb64pe.debug.autoAddDebug.",
+                "default": true
+              },
+              "timeoutMs": {
+                "type": "number",
+                "description": "Debug: milliseconds to wait for the program to connect back before giving up.",
+                "default": 15000
+              },
               "command": {
                 "type": "string",
-                "description": "The terminal command to run when this configuration runs.",
+                "description": "Run: a terminal command to build & run (used instead of debugging when present, and for Run Without Debugging).",
                 "default": "${config:qb64pe.compilerPath} -c ${fileDirname}/${fileBasename} -o ${fileDirname}/${fileBasenameNoExtension}.exe -x; ${fileDirname}/${fileBasenameNoExtension}.exe"
               },
               "terminalName": {
@@ -95,6 +122,17 @@
         ],
         "configurationSnippets": [
           {
+            "label": "QB64PE: Debug (breakpoints, stepping)",
+            "description": "Compile the active file with $DEBUG and debug it with breakpoints and stepping.",
+            "body": {
+              "name": "QB64PE: Debug",
+              "type": "QB64PE",
+              "request": "launch",
+              "program": "^\"\\${file}\"",
+              "stopOnEntry": false
+            }
+          },
+          {
             "label": "QB64PE: Basic Configuration",
             "description": "Basic QB64PE configuration for running a custom terminal command.",
             "body": {
@@ -120,6 +158,11 @@
         ]
       }
     ],
+    "breakpoints": [
+      {
+        "language": "QB64PE"
+      }
+    ],
     "configuration": {
       "title": "QB64PE",
       "properties": {
@@ -127,6 +170,21 @@
           "type": "boolean",
           "default": false,
           "description": "Format|Enable: Formatting"
+        },
+        "qb64pe.debug.basePort": {
+          "type": "number",
+          "default": 9000,
+          "description": "Debug|Port: TCP base port the debugger hosts on; the $DEBUG program connects back to it (matches the QB64PE IDE's BaseTCPPort). The next free port at/above this is used."
+        },
+        "qb64pe.debug.autoAddDebug": {
+          "type": "boolean",
+          "default": true,
+          "description": "Debug|Auto $DEBUG: when the source lacks the $DEBUG metacommand, compile a temporary copy with it appended (line numbers are preserved). Turn off to require $DEBUG in the source."
+        },
+        "qb64pe.debug.timeoutMs": {
+          "type": "number",
+          "default": 15000,
+          "description": "Debug|Timeout: milliseconds to wait for the program to connect back to the debugger before giving up."
         },
         "qb64pe.isFormatMetaCommandsMixedCaseEnabled": {
           "type": "boolean",

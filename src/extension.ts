@@ -242,7 +242,7 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.debug.registerDebugAdapterDescriptorFactory(
       "QB64PE",
-      new DebugAdapterDescriptorFactory()
+      new DebugAdapterDescriptorFactory(workspaceIndex)
     ),
     vscode.debug.registerDebugConfigurationProvider(
       "QB64PE",
