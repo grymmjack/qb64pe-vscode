@@ -2,6 +2,14 @@
 
 All notable changes to the "QB64 PE" extension will be documented in this file.
 
+## 0.19.1
+
+- Formatter: **Format Document now re-indents out of the box** (no setting required), and gains options mirroring the QB64PE IDE's "Code Layout" dialog:
+  - `qb64pe.isFormatIndentEnabled` (default on) — auto-indent lines (leading whitespace only, never code).
+  - `qb64pe.formatIndentSize` (default 0 = follow editor Tab Size) — spaces per indent level.
+  - `qb64pe.formatIndentSubs` (default on) — indent SUB/FUNCTION bodies.
+  - Keyword casing remains `qb64pe.formatMode` (Upper/Mixed/Lower/No Change); spacing remains `qb64pe.isFormatEnabled`.
+
 ## 0.19.0
 
 - Formatter: **proper block indentation**. The document formatter now indents with a block-aware engine — SUB/FUNCTION, IF/ELSE/ELSEIF/END IF (single-line IF left alone), FOR/NEXT, DO/LOOP, WHILE/WEND, SELECT CASE/CASE/END SELECT, TYPE, DECLARE LIBRARY, and `$IF` metacommands all nest correctly, with continuation (`_`) lines indented and keywords inside strings/comments ignored. It only ever changes leading whitespace, so it can never alter code. Enable with `qb64pe.isFormatEnabled` (keyword casing still follows `qb64pe.formatMode`); runs on format / format-on-save.

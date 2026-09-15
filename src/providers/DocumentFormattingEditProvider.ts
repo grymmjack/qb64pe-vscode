@@ -168,11 +168,21 @@ export class DocumentFormattingEditProvider implements vscode.DocumentFormatting
 		// const operators = ",(+-=<>[{}]`);:.";
 		const qb64Config: vscode.WorkspaceConfiguration = vscode.workspace.getConfiguration("qb64pe");
 		const vscodeConfig: vscode.WorkspaceConfiguration = vscode.workspace.getConfiguration("editor")
-		const indent = vscodeConfig.get("insertSpaces") ? " ".repeat(vscodeConfig.get("tabSize")) : "\t"
+		// Indent unit: qb64pe.formatIndentSize (0 = follow the editor's tabSize/insertSpaces).
+		const indentSize = qb64Config.get<number>("formatIndentSize", 0);
+		const indent = indentSize > 0
+			? " ".repeat(indentSize)
+			: (vscodeConfig.get("insertSpaces") ? " ".repeat(vscodeConfig.get("tabSize")) : "\t");
+		const indentSubs = qb64Config.get<boolean>("formatIndentSubs", true);
 
 		try {
 
-			if (!qb64Config.get("isFormatEnabled")) {
+			// Indentation is safe (whitespace only) and on by default so
+			// "Format Document" always tidies nesting; keyword casing/spacing is
+			// the riskier part and stays behind isFormatEnabled.
+			const contentEnabled = qb64Config.get<boolean>("isFormatEnabled", false);
+			const indentEnabled = qb64Config.get<boolean>("isFormatIndentEnabled", true);
+			if (!contentEnabled && !indentEnabled) {
 				return null;
 			}
 
@@ -187,6 +197,12 @@ export class DocumentFormattingEditProvider implements vscode.DocumentFormatting
 					return null;
 				}
 				const originalLine: vscode.TextLine = document.lineAt(lineNumber);
+				// When only indentation is enabled, keep the content untouched and
+				// let pass 2 re-indent it.
+				if (!contentEnabled) {
+					contentLines.push(originalLine.text);
+					continue;
+				}
 				let newLine = originalLine.text.trim().replaceAll(" && ", " and ").replaceAll(" || ", "  or ").replaceAll(" != ", " <> ").replaceAll(" == ", " = ");
 				let lowerLine = newLine.toLowerCase();
 				const isSingleLineIf: boolean = this.isSingleLineIf(newLine.toLowerCase());
@@ -239,7 +255,7 @@ export class DocumentFormattingEditProvider implements vscode.DocumentFormatting
 			}
 
 			// Pass 2: block-aware indentation (leading whitespace only).
-			const indentedLines = reindentLines(contentLines, indent);
+			const indentedLines = reindentLines(contentLines, indent, { indentSubs });
 			for (let lineNumber = 0; lineNumber < document.lineCount; lineNumber++) {
 				const originalLine = document.lineAt(lineNumber);
 				if (indentedLines[lineNumber] !== originalLine.text) {

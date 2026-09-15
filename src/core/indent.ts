@@ -12,11 +12,16 @@
  */
 import { scanLine } from "./lexer";
 
+export interface IndentOptions {
+  /** Indent SUB/FUNCTION bodies (QB64 IDE: "Indent SUBs and FUNCTIONs"). */
+  indentSubs?: boolean;
+}
+
 /** Re-indent `text` using `unit` (e.g. "  ", "    ", or "\t") per level. */
-export function reindent(text: string, unit: string): string {
+export function reindent(text: string, unit: string, opts: IndentOptions = {}): string {
   const eol = text.includes("\r\n") ? "\r\n" : "\n";
   const lines = text.split(/\r?\n/);
-  return reindentLines(lines, unit).join(eol);
+  return reindentLines(lines, unit, opts).join(eol);
 }
 
 interface Frame {
@@ -25,7 +30,7 @@ interface Frame {
   select?: boolean;
 }
 
-export function reindentLines(lines: string[], unit: string): string[] {
+export function reindentLines(lines: string[], unit: string, opts: IndentOptions = {}): string[] {
   const out: string[] = [];
   let depth = 0;
   const selects: Frame[] = []; // active SELECT blocks (for CASE handling)
@@ -38,7 +43,7 @@ export function reindentLines(lines: string[], unit: string): string[] {
       continue;
     }
 
-    const c = classify(raw);
+    const c = classify(raw, opts);
 
     // Continuation lines are indented one extra level and don't change depth.
     if (continued) {
@@ -109,7 +114,8 @@ const NONE: LineClass = {
 };
 
 /** Classify a physical line by its block role, using masked (string/comment-free) code. */
-export function classify(raw: string): LineClass {
+export function classify(raw: string, opts: IndentOptions = {}): LineClass {
+  const indentSubs = opts.indentSubs !== false;
   const scan = scanLine(raw);
   // Metacommand conditional blocks ($IF / $ELSE / $END IF).
   if (scan.isMetacommand) {
@@ -134,9 +140,12 @@ export function classify(raw: string): LineClass {
   if (first === "CASE") return r({ case: true });
 
   // Closers.
+  if (/^END\s+(SUB|FUNCTION)\b/.test(upper) || first === "ENDSUB" || first === "ENDFUNCTION") {
+    return r({ closes: indentSubs }); // paired with the SUB/FUNCTION opener
+  }
   if (
-    /^END\s+(IF|SUB|FUNCTION|TYPE|DECLARE)\b/.test(upper) ||
-    first === "ENDIF" || first === "ENDSUB" || first === "ENDFUNCTION" || first === "ENDTYPE" ||
+    /^END\s+(IF|TYPE|DECLARE)\b/.test(upper) ||
+    first === "ENDIF" || first === "ENDTYPE" ||
     first === "LOOP" || first === "WEND" || first === "NEXT"
   ) {
     return r({ closes: true });
@@ -151,7 +160,7 @@ export function classify(raw: string): LineClass {
   // Openers.
   if (first === "SUB" || first === "FUNCTION") {
     if (/^DECLARE\b/.test(upper)) return r({}); // DECLARE SUB/FUNCTION prototypes don't nest
-    return r({ opens: true });
+    return r({ opens: indentSubs });
   }
   if (first === "TYPE") return r({ opens: true });
   if (/^DECLARE\s+(DYNAMIC\s+)?LIBRARY\b/.test(upper)) return r({ opens: true });
