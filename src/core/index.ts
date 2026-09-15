@@ -66,17 +66,18 @@ export function isQB64File(file: string): boolean {
  * file first, then relative to each of the given roots.
  */
 export function createIncludeResolver(
-  roots: string[],
+  roots: string[] | (() => string[]),
   exists: (file: string) => boolean = fs.existsSync
 ): IncludeResolver {
   return (fromFile, includePath) => {
     const include = includePath.replace(/\\/g, "/").trim();
     if (!include) return null;
+    const rootList = typeof roots === "function" ? roots() : roots;
     const candidates = path.isAbsolute(include)
       ? [include]
       : [
           path.resolve(path.dirname(fromFile), include),
-          ...roots.map((root) => path.resolve(root, include)),
+          ...rootList.map((root) => path.resolve(root, include)),
         ];
     for (const candidate of candidates) {
       if (exists(candidate)) return normalizePath(candidate);

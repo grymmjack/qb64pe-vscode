@@ -126,7 +126,7 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.languages.registerDefinitionProvider(
       commonFunctions.getDocumentSelector(),
-      new DefinitionProvider()
+      new DefinitionProvider(workspaceIndex)
     )
   );
   context.subscriptions.push(

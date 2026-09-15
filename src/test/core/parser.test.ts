@@ -1,5 +1,5 @@
 import * as assert from "assert";
-import { parseContent } from "../../core/parser";
+import { fileDirectiveAt, parseContent } from "../../core/parser";
 
 // Smoke test for the vscode-free parsing core. The exhaustive fixture-based
 // tests live alongside test/fixtures (see P0.2 in the plan); this one proves
@@ -149,5 +149,18 @@ describe("core/parser: statements and implicit declarations", () => {
     assert.deepStrictEqual(symbols.map((s) => [s.name, s.type, s.library]), [
       ["GetTick~&", "FUNCTION", "kernel32"],
     ]);
+  });
+});
+
+describe("core/parser fileDirectiveAt", () => {
+  it("recognises $INCLUDE and $EXEICON with the path columns", () => {
+    assert.deepStrictEqual(fileDirectiveAt("'$INCLUDE:'lib.bi'"), {
+      kind: "INCLUDE", path: "lib.bi", start: 11, end: 17,
+    });
+    assert.deepStrictEqual(fileDirectiveAt("  $EXEICON : 'icons\\app.ico'"), {
+      kind: "EXEICON", path: "icons\\app.ico", start: 14, end: 27,
+    });
+    assert.strictEqual(fileDirectiveAt("$CONSOLE:ONLY"), null);
+    assert.strictEqual(fileDirectiveAt("PRINT \"'$INCLUDE:'x'\""), null);
   });
 });

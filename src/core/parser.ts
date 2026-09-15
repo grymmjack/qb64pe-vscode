@@ -53,7 +53,7 @@ const NAME = `[A-Za-z_][A-Za-z0-9_]*${SIGIL}?`;
 const SIGIL_AT_END = new RegExp(`${SIGIL}$`);
 
 const RE = {
-  include: /^\s*'?\$INCLUDE\s*:\s*'([^']+)'/i,
+  fileDirective: /^\s*'?\$(INCLUDE|EXEICON)\s*:\s*'([^']+)'/i,
   lineNumber: /^\s*(\d+)(?:\s+|$)/,
   label: /^[A-Za-z][A-Za-z0-9_]*$/,
   declareLibrary:
@@ -129,6 +129,28 @@ function baseName(name: string): string {
   return stripSigil(name).toLowerCase();
 }
 
+export interface FileDirective {
+  kind: "INCLUDE" | "EXEICON";
+  /** The path exactly as written. */
+  path: string;
+  /** Columns of the path text (exclusive end), without its quotes. */
+  start: number;
+  end: number;
+}
+
+/** `'$INCLUDE:'lib.bi'` / `$EXEICON:'app.ico'` on this line, if any. */
+export function fileDirectiveAt(line: string): FileDirective | null {
+  const m = line.match(RE.fileDirective);
+  if (!m) return null;
+  const start = m[0].length - m[2].length - 1;
+  return {
+    kind: m[1].toUpperCase() as FileDirective["kind"],
+    path: m[2],
+    start,
+    end: start + m[2].length,
+  };
+}
+
 /** Splits on commas that are outside parentheses and string literals. */
 export function splitTopLevelCommas(text: string): string[] {
   const parts: string[] = [];
@@ -190,9 +212,9 @@ function processLine(
   state: State,
   out: ParseResult
 ): void {
-  const include = line.match(RE.include);
-  if (include) {
-    out.includes.push({ path: include[1], line: lineNumber });
+  const directive = fileDirectiveAt(line);
+  if (directive?.kind === "INCLUDE") {
+    out.includes.push({ path: directive.path, line: lineNumber });
     return;
   }
   if (scanLine(line).isMetacommand) return;

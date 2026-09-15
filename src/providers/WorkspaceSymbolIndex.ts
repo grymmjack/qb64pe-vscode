@@ -2,6 +2,7 @@
 import * as vscode from "vscode";
 import * as logFunctions from "../logFunctions";
 import {
+  IncludeResolver,
   SymbolIndex,
   createIncludeResolver,
   diskLoader,
@@ -35,11 +36,12 @@ export class WorkspaceSymbolIndex implements vscode.Disposable {
   /** Fires with the keys of files whose symbols changed. */
   readonly onDidChange: vscode.Event<string[]> = this.changeEmitter.event;
 
+  private readonly resolver: IncludeResolver;
+
   constructor() {
-    this.index = new SymbolIndex(
-      createIncludeResolver(this.roots()),
-      diskLoader
-    );
+    // Roots are read on every resolve so workspace-folder changes apply.
+    this.resolver = createIncludeResolver(() => this.roots());
+    this.index = new SymbolIndex(this.resolver, diskLoader);
     this.ready = this.scan();
 
     const watcher = vscode.workspace.createFileSystemWatcher(GLOB);
@@ -68,6 +70,11 @@ export class WorkspaceSymbolIndex implements vscode.Disposable {
   /** Resolves once the initial workspace scan has finished. */
   whenReady(): Promise<void> {
     return this.ready;
+  }
+
+  /** Resolves an `$INCLUDE`/`$EXEICON` path the way the index does. */
+  resolveInclude(fromFile: string, includePath: string): string | null {
+    return this.resolver(fromFile, includePath);
   }
 
   /** Canonical index key for a document or path. */
