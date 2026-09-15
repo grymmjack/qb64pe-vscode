@@ -28,3 +28,6 @@ ENHANCED_COMPLETION_GUIDE.md
 IMPLEMENTATION_SUMMARY.md
 syntaxes/*.bak.json
 syntaxes/*-beforetime
+
+# dev-only headless code-intelligence tool (not shipped)
+scripts/**
