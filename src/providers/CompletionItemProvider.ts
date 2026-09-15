@@ -19,6 +19,8 @@ export class CompletionItemProvider implements vscode.CompletionItemProvider {
   private functionCompletions: vscode.CompletionItem[] = [];
   private statementCompletions: vscode.CompletionItem[] = [];
   private readonly workspaceIndex: WorkspaceSymbolIndex;
+  /** Items created from index symbols, for lazy documentation. */
+  private readonly symbolOf = new WeakMap<vscode.CompletionItem, QB64Symbol>();
 
   constructor(workspaceIndex: WorkspaceSymbolIndex) {
     this.workspaceIndex = workspaceIndex;
@@ -851,6 +853,7 @@ export class CompletionItemProvider implements vscode.CompletionItemProvider {
         keyword,
         vscode.CompletionItemKind.Keyword
       );
+      item.sortText = "5_" + keyword; // after user symbols (0_..2_)
 
       // Set the formatted version based on user preferences
       const tokenInfo = new TokenInfo(keyword, "", this.outputChannel);
@@ -860,8 +863,7 @@ export class CompletionItemProvider implements vscode.CompletionItemProvider {
         item.insertText = this.formatKeyword(keyword, config);
       }
 
-      // Add documentation from help files
-      item.documentation = this.getKeywordDocumentation(keyword);
+      // Documentation comes from the help files lazily, in resolveCompletionItem.
 
       // Categorize based on keyword type
       if (this.isFunctionKeyword(keyword)) {
@@ -1151,6 +1153,7 @@ export class CompletionItemProvider implements vscode.CompletionItemProvider {
         snippet.label,
         vscode.CompletionItemKind.Snippet
       );
+      item.sortText = "6_" + snippet.label; // below keywords
       item.insertText = snippet.insertText;
       item.documentation = new vscode.MarkdownString(snippet.documentation);
       this.keywordCompletions.push(item);
@@ -1180,80 +1183,20 @@ export class CompletionItemProvider implements vscode.CompletionItemProvider {
           });
       }
 
-      // Get the current line and word being typed
-      const lineText = document.lineAt(position).text;
-      const wordRange = document.getWordRangeAtPosition(position);
-      const word = wordRange ? document.getText(wordRange) : "";
-
-      logFunctions.writeLine(
-        `Completion requested at position ${position.line}:${position.character}, word: "${word}"`,
-        this.outputChannel
-      );
-
-      // Filter completions based on context
-      let completions: vscode.CompletionItem[] = [];
-
-      // Add all keyword completions
-      completions = completions.concat(this.keywordCompletions);
-      completions = completions.concat(this.functionCompletions);
-      completions = completions.concat(this.statementCompletions);
-
-      // Add user-defined symbols
-      const userSymbols = await this.getUserDefinedCompletions(
-        document,
-        position,
-        word
-      );
-      completions = completions.concat(userSymbols);
-
-      // Add local variables and user-defined functions/subs (legacy method for compatibility)
-      const localCompletions = this.getLocalCompletions(document);
-      completions = completions.concat(localCompletions);
-
-      // Filter based on current input
-      if (word.length > 0) {
-        completions = completions.filter((item) =>
-          item.label.toString().toLowerCase().startsWith(word.toLowerCase())
-        );
-      }
-
-      // Remove duplicates (prefer user symbols over built-in)
-      completions = this.removeDuplicateCompletions(completions);
-
-      // Sort by relevance (keyword type and alphabetically)
-      completions.sort((a, b) => {
-        // Prioritize exact matches
-        const aExact = a.label.toString().toLowerCase() === word.toLowerCase();
-        const bExact = b.label.toString().toLowerCase() === word.toLowerCase();
-        if (aExact && !bExact) return -1;
-        if (!aExact && bExact) return 1;
-
-        // Then by kind priority (User-defined > Functions > Keywords)
-        const kindPriority = {
-          [vscode.CompletionItemKind.Method]: 1, // SUBs
-          [vscode.CompletionItemKind.Function]: 2, // FUNCTIONs
-          [vscode.CompletionItemKind.Variable]: 3, // Variables
-          [vscode.CompletionItemKind.Struct]: 4, // TYPEs
-          [vscode.CompletionItemKind.Constant]: 5, // CONSTs
-          [vscode.CompletionItemKind.Keyword]: 6, // Built-in keywords
-          [vscode.CompletionItemKind.Snippet]: 7, // Snippets
-        };
-
-        const aPriority = kindPriority[a.kind!] || 8;
-        const bPriority = kindPriority[b.kind!] || 8;
-
-        if (aPriority !== bPriority) return aPriority - bPriority;
-
-        // Finally alphabetically
-        return a.label.toString().localeCompare(b.label.toString());
-      });
-
+      // User symbols first so they win over same-named built-ins when
+      // de-duplicating. The list is complete (isIncomplete = false): VS Code
+      // filters and fuzzy-matches client-side as the user keeps typing.
+      const completions = this.removeDuplicateCompletions([
+        ...this.getUserDefinedCompletions(document, position),
+        ...this.keywordCompletions,
+        ...this.functionCompletions,
+        ...this.statementCompletions,
+      ]);
       logFunctions.writeLine(
         `Returning ${completions.length} completions`,
         this.outputChannel
       );
-
-      return completions;
+      return new vscode.CompletionList(completions, false);
     } catch (error) {
       logFunctions.writeLine(
         `Error in provideCompletionItems: ${error}`,
@@ -1263,78 +1206,15 @@ export class CompletionItemProvider implements vscode.CompletionItemProvider {
     }
   }
 
-  private getLocalCompletions(
-    document: vscode.TextDocument
-  ): vscode.CompletionItem[] {
-    const completions: vscode.CompletionItem[] = [];
-
-    try {
-      const text = document.getText();
-      const lines = text.split("\n");
-
-      // Find SUBs and FUNCTIONs
-      const subFunctionRegex = /^\s*(SUB|FUNCTION)\s+([a-zA-Z_][a-zA-Z0-9_]*)/i;
-
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        const match = line.match(subFunctionRegex);
-
-        if (match) {
-          const type = match[1].toUpperCase();
-          const name = match[2];
-
-          const item = new vscode.CompletionItem(
-            name,
-            type === "SUB"
-              ? vscode.CompletionItemKind.Method
-              : vscode.CompletionItemKind.Function
-          );
-
-          item.detail = `User-defined ${type.toLowerCase()}`;
-          item.documentation = new vscode.MarkdownString(
-            `${type} defined at line ${i + 1}`
-          );
-
-          completions.push(item);
-        }
-      }
-
-      // Find DIM statements for variables
-      const dimRegex = /^\s*DIM\s+([a-zA-Z_][a-zA-Z0-9_]*)/i;
-
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        const match = line.match(dimRegex);
-
-        if (match) {
-          const name = match[1];
-
-          const item = new vscode.CompletionItem(
-            name,
-            vscode.CompletionItemKind.Variable
-          );
-          item.detail = "User-defined variable";
-          item.documentation = new vscode.MarkdownString(
-            `Variable declared at line ${i + 1}`
-          );
-
-          completions.push(item);
-        }
-      }
-    } catch (error) {
-      logFunctions.writeLine(
-        `Error getting local completions: ${error}`,
-        this.outputChannel
-      );
-    }
-
-    return completions;
-  }
-
   resolveCompletionItem(
     item: vscode.CompletionItem,
     token: vscode.CancellationToken
   ): vscode.ProviderResult<vscode.CompletionItem> {
+    const symbol = this.symbolOf.get(item);
+    if (symbol) {
+      item.documentation = new vscode.MarkdownString(symbolMarkdown(symbol));
+      return item;
+    }
     // Add additional details when the item is selected
     if (
       item.kind === vscode.CompletionItemKind.Keyword ||
@@ -1349,35 +1229,22 @@ export class CompletionItemProvider implements vscode.CompletionItemProvider {
     return item;
   }
 
-  private async getUserDefinedCompletions(
+  private getUserDefinedCompletions(
     document: vscode.TextDocument,
-    position: vscode.Position,
-    prefix: string
-  ): Promise<vscode.CompletionItem[]> {
+    position: vscode.Position
+  ): vscode.CompletionItem[] {
     const completions: vscode.CompletionItem[] = [];
-
     try {
-      // Everything visible here: params/locals of the enclosing routine, then
-      // this file, its includes and the rest of the compilation unit.
-      const scopedSymbols = symbolsInScope(
+      // Everything visible here (already de-duplicated by name, nearest scope
+      // first): params/locals of the enclosing routine, then this file, its
+      // includes and the rest of the compilation unit.
+      for (const symbol of symbolsInScope(
         this.workspaceIndex.index,
         this.workspaceIndex.keyOf(document),
         position.line
-      );
-
-      // Filter symbols based on prefix
-      const filteredSymbols = scopedSymbols.filter((symbol) =>
-        symbol.name.toLowerCase().startsWith(prefix.toLowerCase())
-      );
-
-      // Remove duplicates (prefer local over global)
-      const uniqueSymbols = this.removeDuplicateSymbols(filteredSymbols);
-
-      for (const symbol of uniqueSymbols) {
+      )) {
         const completion = this.createCompletionFromSymbol(symbol, document);
-        if (completion) {
-          completions.push(completion);
-        }
+        if (completion) completions.push(completion);
       }
     } catch (error) {
       logFunctions.writeLine(
@@ -1385,7 +1252,6 @@ export class CompletionItemProvider implements vscode.CompletionItemProvider {
         this.outputChannel
       );
     }
-
     return completions;
   }
 
@@ -1435,7 +1301,7 @@ export class CompletionItemProvider implements vscode.CompletionItemProvider {
       default:
         return null;
     }
-    completion.documentation = new vscode.MarkdownString(symbolMarkdown(symbol));
+    this.symbolOf.set(completion, symbol); // documentation is rendered lazily
 
     // Add scope indicator for sorting
     if (symbol.scope === "LOCAL") {
@@ -1489,25 +1355,6 @@ export class CompletionItemProvider implements vscode.CompletionItemProvider {
       .map((p, i) => `\${${i + 1}:${p.name}}`)
       .join(", ");
     return new vscode.SnippetString(`${symbol.name}(${params})`);
-  }
-
-  private removeDuplicateSymbols(symbols: QB64Symbol[]): QB64Symbol[] {
-    const symbolMap = new Map<string, QB64Symbol>();
-
-    // Sort by scope priority (LOCAL > MODULE > GLOBAL)
-    const sortedSymbols = symbols.sort((a, b) => {
-      const scopePriority = { LOCAL: 0, MODULE: 1, GLOBAL: 2 };
-      return scopePriority[a.scope] - scopePriority[b.scope];
-    });
-
-    for (const symbol of sortedSymbols) {
-      const key = symbol.name.toLowerCase();
-      if (!symbolMap.has(key)) {
-        symbolMap.set(key, symbol);
-      }
-    }
-
-    return Array.from(symbolMap.values());
   }
 
   private removeDuplicateCompletions(
