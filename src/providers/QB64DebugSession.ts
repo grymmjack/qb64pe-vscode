@@ -129,6 +129,8 @@ interface QB64LaunchArguments
   autoAddDebug?: boolean;
   /** Milliseconds to wait for the debuggee to connect back. */
   timeoutMs?: number;
+  /** Reuse the previous build when the source is unchanged. */
+  cacheBuild?: boolean;
 }
 
 /**
@@ -271,20 +273,31 @@ export class QB64DebugSession extends LoggingDebugSession {
     }
 
     const exePath = this.exePathFor(this.compiledProgram);
-    const compileStart = Date.now();
-    const ok = await this.compile(compilerPath, this.compiledProgram, exePath);
-    if (!ok) {
-      this.fail(response, "Compilation failed — see the debug console.");
-      return;
-    }
-    this.loadVariableManifest(compilerPath, compileStart);
-    const producedExe = this.findProducedExe(exePath);
-    if (!producedExe) {
-      this.fail(
-        response,
-        `Compiler reported success but no executable was found near ${exePath}.`
-      );
-      return;
+
+    // Reuse the previous build when the flattened source is byte-identical and
+    // the executable + cached variable manifest are still present — turns a
+    // repeat debug session of a large project from minutes into instant.
+    let producedExe = this.tryUseCachedBuild(args, exePath);
+    if (producedExe) {
+      this.output("Reusing cached build (no source changes).\n");
+    } else {
+      fs.writeFileSync(this.compiledProgram, this.flatText, "latin1");
+      const compileStart = Date.now();
+      const ok = await this.compile(compilerPath, this.compiledProgram, exePath);
+      if (!ok) {
+        this.fail(response, "Compilation failed — see the debug console.");
+        return;
+      }
+      this.loadVariableManifest(compilerPath, compileStart);
+      producedExe = this.findProducedExe(exePath);
+      if (!producedExe) {
+        this.fail(
+          response,
+          `Compiler reported success but no executable was found near ${exePath}.`
+        );
+        return;
+      }
+      this.saveBuildCache();
     }
 
     // Arm a connection timeout so a program without $DEBUG (or that refuses to
@@ -1427,14 +1440,54 @@ export class QB64DebugSession extends LoggingDebugSession {
 
     const dir = path.dirname(this.program);
     const base = path.basename(this.program, path.extname(this.program));
-    const temp = path.join(dir, `.${base}.debug${path.extname(this.program)}`);
-    fs.writeFileSync(temp, this.flatText, "latin1");
-    this.compiledProgram = temp;
-    this.tempProgram = temp;
+    // The temp file is written later (only on a cache miss).
+    this.compiledProgram = path.join(dir, `.${base}.debug${path.extname(this.program)}`);
+    this.tempProgram = this.compiledProgram;
     if (this.isTracing()) {
       this.output(
         `Flattened ${this.flatByFile.size} file(s) into ${this.origins.length} lines.\n`
       );
+    }
+  }
+
+  private buildCachePath(): string {
+    return this.compiledProgram + ".manifest";
+  }
+
+  /**
+   * If caching is on and the previous build's flattened source matches the
+   * current one (byte-identical), and the executable + cached manifest still
+   * exist, reuse them and skip compilation entirely. Returns the exe or null.
+   */
+  private tryUseCachedBuild(
+    args: QB64LaunchArguments,
+    exePath: string
+  ): string | undefined {
+    const cfg = vscode.workspace.getConfiguration("qb64pe");
+    const enabled = args.cacheBuild ?? cfg.get<boolean>("debug.cacheBuild", true);
+    if (!enabled) return undefined;
+    try {
+      if (fs.readFileSync(this.compiledProgram, "latin1") !== this.flatText) {
+        return undefined; // source changed → must recompile
+      }
+      const exe = this.findProducedExe(exePath);
+      if (!exe) return undefined;
+      const cache = this.buildCachePath();
+      if (!fs.existsSync(cache)) return undefined;
+      this.generatedC = fs.readFileSync(cache, "latin1");
+      this.globals = resolveGlobals(this.generatedC);
+      return exe;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** Persist the variable manifest next to the temp so a cache hit can reuse it. */
+  private saveBuildCache(): void {
+    try {
+      fs.writeFileSync(this.buildCachePath(), this.generatedC, "latin1");
+    } catch {
+      /* non-fatal: next run just recompiles */
     }
   }
 
@@ -1562,13 +1615,8 @@ export class QB64DebugSession extends LoggingDebugSession {
     } catch {
       /* ignore */
     }
-    if (this.tempProgram) {
-      try {
-        fs.unlinkSync(this.tempProgram);
-      } catch {
-        /* ignore */
-      }
-    }
+    // The flattened temp + its .manifest are the build cache; they are left in
+    // place so an unchanged program relaunches without recompiling.
     this.sendEvent(new TerminatedEvent());
   }
 

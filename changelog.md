@@ -2,6 +2,10 @@
 
 All notable changes to the "QB64 PE" extension will be documented in this file.
 
+## 0.17.0
+
+- Debugger: **cached builds**. When you start debugging and the source hasn't changed since the last run, the extension reuses the previous executable and variable manifest instead of recompiling — repeat debug sessions of large multi-file projects go from a long compile to near-instant. Detection is exact (byte-identical flattened source). Toggle with `qb64pe.debug.cacheBuild` (default on). The flattened temp file and its `.manifest` are kept next to your source as the cache.
+
 ## 0.16.2
 
 - Debugger: colour-valued variables now show a readable hint. A variable whose name looks like a colour (`*color`, `fg`, `bg`, `clr*`) and whose value is a 32-bit `_RGB32`/`&HAARRGGBB` number is annotated, e.g. `fgColor = 4294638330  (#FAFAFA A:255)`, in the Variables and Watch panels. (VS Code's debug view can't render an actual colour swatch.)
