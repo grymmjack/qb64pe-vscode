@@ -240,6 +240,9 @@ export async function activate(context: vscode.ExtensionContext) {
     todoTreeProvider.refresh()
   );
   todoFunctions.setupTodoTracking(context, todoTreeProvider);
+
+  // Exposed as the extension's API (used by the integration tests).
+  return { workspaceIndex };
 }
 
 /**

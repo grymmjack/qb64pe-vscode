@@ -19,12 +19,15 @@ npm run compile          # tsc: type-checks everything and emits out/ (tests run
 npm test                 # tsc, then mocha over out/test/**/*.test.js (the vscode-free core)
 npx mocha out/test/core/parser.test.js          # one test file (after npm run compile)
 npx mocha out/test/core/queries.test.js -g "member"   # one test by name
-npx vsce package         # Produce the installable .vsix
+npm run test:integration # Extension Development Host smoke test of every provider (downloads VS Code to .vscode-test/ once;
+                         #   prefix with `xvfb-run -a` to keep it off your screen; the runner clears ELECTRON_RUN_AS_NODE)
+npm run package          # Produce the installable .vsix with @vscode/vsce (contents governed by .vscodeignore)
 ```
 
 - **Run/debug the extension**: press F5 in VS Code (uses `.vscode/launch.json`) to launch an
   Extension Development Host.
-- **Tests** cover `src/core` only (it has no `vscode` dependency). Fixtures live in
+- **Tests**: `npm test` covers `src/core` (no `vscode` dependency); `src/test/integration/` drives
+  the real extension host via `vscode.execute*Provider` commands. Fixtures live in
   `test/fixtures/` (see its README: each file targets one syntax area). `corpus.test.ts`
   parses every `.bas/.bi/.bm` in a QB64PE source checkout at `../qb64pe` (or `$QB64PE_SRC`)
   as a crash detector and is skipped when absent.

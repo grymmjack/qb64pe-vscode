@@ -48,18 +48,15 @@ function knownRoutineNames(editor: any): Set<string> {
 export function setupDecorate(sharedIndex?: WorkspaceSymbolIndex) {
 	workspaceIndex = sharedIndex ?? null;
 
-	// Needed for the first opening VsCode
-	vscode.commands.executeCommand<vscode.DocumentSymbol[]>('vscode.executeDocumentSymbolProvider', vscode.window.activeTextEditor.document.uri)
-		.then(() => {
-			scanFile(vscode.window.activeTextEditor, true);
-			vscode.window.onDidChangeTextEditorSelection(() => { scanFile(vscode.window.activeTextEditor, false); });
-
-			vscode.window.onDidChangeActiveTextEditor((editor): void => {
-				if (editor) {
-					vscode.commands.executeCommand<vscode.DocumentSymbol[]>('vscode.executeDocumentSymbolProvider', editor.document.uri).then(() => { scanFile(editor, true); });
-				}
-			});
-		});
+	// There may be no editor yet (e.g. activation from a workspace scan).
+	const editor = vscode.window.activeTextEditor;
+	if (editor) scanFile(editor, true);
+	vscode.window.onDidChangeTextEditorSelection(() => {
+		if (vscode.window.activeTextEditor) scanFile(vscode.window.activeTextEditor, false);
+	});
+	vscode.window.onDidChangeActiveTextEditor((active) => {
+		if (active) scanFile(active, true);
+	});
 }
 
 function getMetaCommandDecoration(scopeName: string): vscode.TextEditorDecorationType {
