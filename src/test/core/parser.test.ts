@@ -88,3 +88,66 @@ describe("core/parser", () => {
     assert.strictEqual(items.scope, "MODULE");
   });
 });
+
+describe("core/parser: statements and implicit declarations", () => {
+  const parse = (src: string[]) => parseContent(src.join("\n"), "t.bas");
+
+  it("parses CONST lists, keeping commas inside strings and parens", () => {
+    const symbols = parse(['CONST A = 1, B = "x,y", C = MAX(1, 2)']);
+    assert.deepStrictEqual(
+      symbols.map((s) => [s.name, s.value]),
+      [["A", "1"], ["B", '"x,y"'], ["C", "MAX(1, 2)"]]
+    );
+  });
+
+  it("records numeric line numbers as labels and still parses the statement", () => {
+    const symbols = parse(['10 DIM a AS LONG', '20 PRINT a']);
+    assert.deepStrictEqual(symbols.map((s) => [s.type, s.name]), [
+      ["LABEL", "10"], ["VARIABLE", "a"], ["LABEL", "20"],
+    ]);
+  });
+
+  it("does not mistake `CLS: PRINT` or `DO:` for labels", () => {
+    const symbols = parse(['CLS: PRINT "x"', 'DO: LOOP UNTIL INKEY$ <> ""', 'again:']);
+    assert.deepStrictEqual(symbols.map((s) => s.name), ["again"]);
+  });
+
+  it("creates implicit variables from first assignment and FOR, once", () => {
+    const symbols = parse([
+      "score = 5",
+      "score = score + 1",
+      "FOR k = 1 TO 3: NEXT",
+      "LET total& = 9",
+      "SUB Bump (amount)",
+      "  amount = amount + 1",
+      "  temp$ = STR$(amount)",
+      "END SUB",
+    ]);
+    assert.deepStrictEqual(
+      symbols.filter((s) => s.type === "VARIABLE").map((s) => [s.name, s.scope, s.isImplicit, s.dataType]),
+      [
+        ["score", "MODULE", true, undefined],
+        ["k", "MODULE", true, undefined],
+        ["total&", "MODULE", true, "LONG"],
+        ["temp$", "LOCAL", true, "STRING"],
+      ]
+    );
+  });
+
+  it("accepts CRLF line endings and continuation across them", () => {
+    const symbols = parseContent("SUB A (x, _\r\n  y)\r\nEND SUB\r\n", "t.bas");
+    assert.deepStrictEqual(symbols[0].parameters.map((p) => p.name), ["x", "y"]);
+  });
+
+  it("handles ALIAS in DECLARE LIBRARY and ignores forward DECLAREs", () => {
+    const symbols = parse([
+      "DECLARE SUB Old (a)",
+      'DECLARE DYNAMIC LIBRARY "kernel32"',
+      '  FUNCTION GetTick~& ALIAS "GetTickCount" ()',
+      "END DECLARE",
+    ]);
+    assert.deepStrictEqual(symbols.map((s) => [s.name, s.type, s.library]), [
+      ["GetTick~&", "FUNCTION", "kernel32"],
+    ]);
+  });
+});

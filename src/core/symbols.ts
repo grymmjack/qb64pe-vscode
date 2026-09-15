@@ -11,7 +11,8 @@ export type QB64SymbolType =
   | "VARIABLE"
   | "TYPE"
   | "CONST"
-  | "LABEL";
+  | "LABEL"
+  | "FIELD"; // a TYPE member; lives on the TYPE symbol's `members`
 
 export type QB64SymbolScope = "LOCAL" | "MODULE" | "GLOBAL";
 
@@ -28,6 +29,12 @@ export interface QB64Symbol {
   isArray?: boolean;
   isShared?: boolean;
   value?: string; // For constants - the actual value
+  members?: QB64Symbol[]; // TYPE fields (type "FIELD")
+  parent?: string; // For FIELDs - the enclosing TYPE name
+  isStatic?: boolean; // SUB/FUNCTION declared with a trailing STATIC
+  isExternal?: boolean; // declared inside DECLARE LIBRARY
+  library?: string; // DECLARE LIBRARY name ("" when unnamed)
+  isImplicit?: boolean; // variable created by first assignment / FOR, no DIM
 }
 
 export interface Parameter {
@@ -35,5 +42,6 @@ export interface Parameter {
   type?: string;
   optional?: boolean;
   byRef?: boolean;
+  isArray?: boolean; // declared as `name()`
   description?: string; // Parameter-specific documentation
 }

@@ -4,228 +4,455 @@
  * No `vscode` or filesystem dependencies: callers hand in the file content
  * and a path used only to tag the resulting symbols. This keeps the parser
  * unit-testable and lets the SymbolParser/SymbolIndex adapters own all I/O.
+ *
+ * Strategy: physical lines are joined on `_` continuations into logical
+ * lines, each logical line is split into `:`-separated statements with the
+ * lexer (so comments and strings can never masquerade as code), and every
+ * statement is matched against anchored, sigil-aware patterns. It is still a
+ * pattern matcher rather than a grammar, but a careful one.
  */
 import { Parameter, QB64Symbol, QB64SymbolScope } from "./symbols";
+import { hasLineContinuation, scanLine, splitStatements } from "./lexer";
+
+export interface IncludeDirective {
+  /** The path exactly as written in the `$INCLUDE` directive. */
+  path: string;
+  line: number;
+}
+
+export interface ParseResult {
+  symbols: QB64Symbol[];
+  includes: IncludeDirective[];
+}
+
+interface Declaration {
+  name: string;
+  dims?: string;
+  dataType?: string;
+}
+
+interface Routine {
+  name: string;
+  /** Lower-cased name without its type sigil, for return-value assignments. */
+  base: string;
+  params: Set<string>;
+  locals: Set<string>;
+}
+
+interface State {
+  routine: Routine | null;
+  type: QB64Symbol | null;
+  /** Library name while inside DECLARE LIBRARY … END DECLARE, else null. */
+  library: string | null;
+  moduleNames: Set<string>;
+}
+
+const SIGIL = "(?:~?(?:%%|&&|##|[%&!#`])|\\$)";
+const NAME = `[A-Za-z_][A-Za-z0-9_]*${SIGIL}?`;
+const SIGIL_AT_END = new RegExp(`${SIGIL}$`);
+
+const RE = {
+  include: /^\s*'?\$INCLUDE\s*:\s*'([^']+)'/i,
+  lineNumber: /^\s*(\d+)(?:\s+|$)/,
+  label: /^[A-Za-z][A-Za-z0-9_]*$/,
+  declareLibrary:
+    /^DECLARE\s+(?:(?:DYNAMIC|STATIC|CUSTOMTYPE)\s+)?LIBRARY(?:\s+"([^"]*)")?\s*$/i,
+  endDeclare: /^END\s+DECLARE\b/i,
+  declareForward: /^DECLARE\s+(?:SUB|FUNCTION)\b/i,
+  type: new RegExp(`^TYPE\\s+(${NAME})\\s*$`, "i"),
+  endType: /^END\s+TYPE\b/i,
+  routine: new RegExp(
+    `^(SUB|FUNCTION)\\s+(${NAME})\\s*(?:ALIAS\\s+(?:"[^"]*"|[A-Za-z_][A-Za-z0-9_]*)\\s*)?(?:\\((.*)\\))?\\s*(STATIC)?\\s*$`,
+    "i"
+  ),
+  endRoutine: /^END\s+(SUB|FUNCTION)\b/i,
+  dim: /^(DIM|REDIM|STATIC|COMMON)\s+(?:_PRESERVE\s+)?(?:(SHARED)\s+)?(.+)$/i,
+  shared: /^SHARED\s+/i,
+  const: /^CONST\s+(.+)$/i,
+  constItem: new RegExp(`^(${NAME})\\s*=\\s*(.+)$`),
+  forLoop: new RegExp(`^FOR\\s+(${NAME})\\s*=`, "i"),
+  assignment: new RegExp(`^(?:LET\\s+)?(${NAME})\\s*=`, "i"),
+  declTypeFirst: new RegExp(`^AS\\s+(.+?)\\s+(${NAME})\\s*(\\(.*\\))?$`, "i"),
+  declNameFirst: new RegExp(`^(${NAME})\\s*(\\(.*\\))?\\s*(?:AS\\s+(.+))?$`, "i"),
+  param: new RegExp(
+    `^(?:(BYVAL|BYREF)\\s+)?(${NAME})\\s*(\\(\\s*\\))?\\s*(?:AS\\s+(.+))?$`,
+    "i"
+  ),
+};
 
 /**
- * Parses QB64PE source text into a flat list of symbols.
- * @param content Full source text of one file.
- * @param filePath Path the symbols are attributed to.
+ * Statement keywords that commonly stand alone before a `:` (`CLS: PRINT`),
+ * which must not be mistaken for labels. Any `_`-prefixed name is a QB64PE
+ * keyword and is excluded by the label pattern itself.
  */
-export function parseContent(content: string, filePath: string): QB64Symbol[] {
-  const symbols: QB64Symbol[] = [];
-  const lines = content.split("\n");
-  let currentScope: "LOCAL" | "MODULE" = "MODULE";
-  let inSubOrFunction = false;
+const NOT_A_LABEL = new Set([
+  "BEEP", "CALL", "CASE", "CHAIN", "CLEAR", "CLOSE", "CLS", "COLOR", "DATA",
+  "DO", "ELSE", "ELSEIF", "END", "ERASE", "EXIT", "FILES", "FOR", "GOSUB",
+  "GOTO", "IF", "INPUT", "KEY", "LET", "LOCATE", "LOOP", "LPRINT", "NEXT",
+  "ON", "OPEN", "PAINT", "PLAY", "PRINT", "RANDOMIZE", "READ", "REM", "RESET",
+  "RESTORE", "RESUME", "RETURN", "RUN", "SCREEN", "SELECT", "SHELL", "SLEEP",
+  "SOUND", "STOP", "SWAP", "SYSTEM", "THEN", "TROFF", "TRON", "UNTIL", "WAIT",
+  "WEND", "WHILE", "WIDTH", "WRITE",
+]);
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
-    const lineNumber = i;
+const SIGIL_TYPES: Record<string, string> = {
+  $: "STRING",
+  "%%": "_BYTE",
+  "&&": "_INTEGER64",
+  "##": "_FLOAT",
+  "%": "INTEGER",
+  "&": "LONG",
+  "!": "SINGLE",
+  "#": "DOUBLE",
+  "`": "_BIT",
+};
 
-    // Skip comments and empty lines
-    if (line.startsWith("'") || line.startsWith("REM") || line === "")
-      continue;
+/** `count%` -> `INTEGER`, `flags~%` -> `_UNSIGNED INTEGER`, `x` -> undefined. */
+export function sigilToType(name: string): string | undefined {
+  const m = name.match(/(~?)(%%|&&|##|[%&!#`$])$/);
+  if (!m) return undefined;
+  const base = SIGIL_TYPES[m[2]];
+  return m[1] ? `_UNSIGNED ${base}` : base;
+}
 
-    // Track scope context
-    if (line.match(/^\s*(SUB|FUNCTION)\s+/i)) {
-      inSubOrFunction = true;
-      currentScope = "LOCAL";
-    } else if (line.match(/^\s*END\s+(SUB|FUNCTION)\s*$/i)) {
-      inSubOrFunction = false;
-      currentScope = "MODULE";
-    }
+function collapse(text: string): string {
+  return text.trim().replace(/\s+/g, " ");
+}
 
-    // Parse SUBs
-    const subMatch = line.match(
-      /^\s*SUB\s+([A-Za-z_][A-Za-z0-9_]*)\s*(\([^)]*\))?\s*(STATIC)?\s*$/i
-    );
-    if (subMatch) {
-      const name = subMatch[1];
-      const paramString = subMatch[2];
-      const isStatic = !!subMatch[3];
-      const parameters = parseParameters(paramString);
-      const documentation = extractDocumentation(lines, i);
-      const parameterDescriptions = extractParameterDocumentation(
-        lines,
-        i,
-        parameters
-      );
+function baseName(name: string): string {
+  return name.replace(SIGIL_AT_END, "").toLowerCase();
+}
 
-      symbols.push({
-        name,
-        type: "SUB",
-        parameters,
-        scope: isStatic ? "LOCAL" : "MODULE",
-        line: lineNumber,
-        file: filePath,
-        documentation,
-        parameterDescriptions,
-      });
-      continue;
-    }
-
-    // Parse FUNCTIONs
-    const funcMatch = line.match(
-      /^\s*FUNCTION\s+([A-Za-z_][A-Za-z0-9_]*)\s*(\([^)]*\))?\s*(?:AS\s+([A-Za-z_][A-Za-z0-9_]*))?\s*(STATIC)?\s*$/i
-    );
-    if (funcMatch) {
-      const name = funcMatch[1];
-      const paramString = funcMatch[2];
-      const returnType = funcMatch[3];
-      const isStatic = !!funcMatch[4];
-      const parameters = parseParameters(paramString);
-      const documentation = extractDocumentation(lines, i);
-      const parameterDescriptions = extractParameterDocumentation(
-        lines,
-        i,
-        parameters
-      );
-
-      symbols.push({
-        name,
-        type: "FUNCTION",
-        dataType: returnType,
-        parameters,
-        scope: isStatic ? "LOCAL" : "MODULE",
-        line: lineNumber,
-        file: filePath,
-        documentation,
-        parameterDescriptions,
-      });
-      continue;
-    }
-
-    // Parse TYPEs
-    const typeMatch = line.match(/^\s*TYPE\s+([A-Za-z_][A-Za-z0-9_]*)\s*$/i);
-    if (typeMatch) {
-      const name = typeMatch[1];
-      symbols.push({
-        name,
-        type: "TYPE",
-        scope: "MODULE",
-        line: lineNumber,
-        file: filePath,
-        documentation: extractDocumentation(lines, i),
-      });
-      continue;
-    }
-
-    // Parse variables (DIM, STATIC, COMMON, REDIM)
-    const dimMatch = line.match(
-      /^\s*(?:DIM|STATIC|COMMON|REDIM)\s+(?:SHARED\s+)?([A-Za-z_][A-Za-z0-9_]*(?:\([^)]*\))?)\s*(?:AS\s+([A-Za-z_][A-Za-z0-9_]*))?\s*$/i
-    );
-    if (dimMatch) {
-      const nameWithArray = dimMatch[1];
-      const dataType = dimMatch[2];
-      const isShared = line.toUpperCase().includes("SHARED");
-      const isArray = nameWithArray.includes("(");
-      const name = nameWithArray.split("(")[0]; // Remove array dimensions
-
-      // Determine scope based on context and SHARED keyword
-      let scope: QB64SymbolScope;
-      if (isShared) {
-        scope = "GLOBAL";
-      } else if (inSubOrFunction) {
-        scope = "LOCAL";
-      } else {
-        scope = "MODULE";
-      }
-
-      symbols.push({
-        name,
-        type: "VARIABLE",
-        dataType,
-        scope,
-        line: lineNumber,
-        file: filePath,
-        isArray,
-        isShared,
-      });
-      continue;
-    }
-
-    // Parse constants
-    const constMatch = line.match(
-      /^\s*CONST\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$/i
-    );
-    if (constMatch) {
-      const name = constMatch[1];
-      const value = constMatch[2].trim();
-      symbols.push({
-        name,
-        type: "CONST",
-        scope: "MODULE",
-        line: lineNumber,
-        file: filePath,
-        documentation: extractDocumentation(lines, i),
-        value: value,
-      });
-      continue;
-    }
-
-    // Parse simple variable assignments that might not have DIM
-    if (inSubOrFunction) {
-      const assignMatch = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*[=]/);
-      if (assignMatch && !line.match(/^\s*(IF|WHILE|FOR|SELECT|CASE)/i)) {
-        const name = assignMatch[1];
-
-        // Only add if we haven't seen this variable before
-        const existingVar = symbols.find(
-          (s) =>
-            s.name.toLowerCase() === name.toLowerCase() &&
-            s.type === "VARIABLE"
-        );
-        if (!existingVar) {
-          symbols.push({
-            name,
-            type: "VARIABLE",
-            scope: "LOCAL",
-            line: lineNumber,
-            file: filePath,
-          });
-        }
+/** Splits on commas that are outside parentheses and string literals. */
+export function splitTopLevelCommas(text: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let inString = false;
+  let start = 0;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === '"') inString = !inString;
+    else if (!inString) {
+      if (c === "(") depth++;
+      else if (c === ")") depth = Math.max(0, depth - 1);
+      else if (c === "," && depth === 0) {
+        parts.push(text.substring(start, i));
+        start = i + 1;
       }
     }
   }
-
-  return symbols;
+  parts.push(text.substring(start));
+  return parts;
 }
 
 /**
- * Parses a parenthesised parameter list such as `(a AS INTEGER, BYVAL b)`.
- * @param paramString The parameter list including its parentheses.
+ * Parses QB64PE source text into a flat list of symbols.
+ * TYPE members live on the TYPE symbol's `members`, not in the flat list.
  */
-export function parseParameters(paramString?: string): Parameter[] {
-  if (!paramString) return [];
+export function parseContent(content: string, filePath: string): QB64Symbol[] {
+  return parseFile(content, filePath).symbols;
+}
 
-  const params: Parameter[] = [];
-  const paramText = paramString.slice(1, -1); // Remove parentheses
+/** Like parseContent but also returns the `$INCLUDE` directives found. */
+export function parseFile(content: string, filePath: string): ParseResult {
+  const physical = content.split(/\r?\n/);
+  const out: ParseResult = { symbols: [], includes: [] };
+  const state: State = {
+    routine: null,
+    type: null,
+    library: null,
+    moduleNames: new Set<string>(),
+  };
 
-  if (paramText.trim() === "") return [];
+  for (let i = 0; i < physical.length; i++) {
+    const startLine = i;
+    let logical = physical[i];
+    while (hasLineContinuation(logical) && i + 1 < physical.length) {
+      logical = logical.replace(/_\s*$/, "") + " " + physical[++i].trimStart();
+    }
+    processLine(logical, startLine, physical, filePath, state, out);
+  }
 
-  const paramParts = paramText.split(",");
+  return out;
+}
 
-  for (const part of paramParts) {
-    const trimmed = part.trim();
+function processLine(
+  line: string,
+  lineNumber: number,
+  physical: string[],
+  file: string,
+  state: State,
+  out: ParseResult
+): void {
+  const include = line.match(RE.include);
+  if (include) {
+    out.includes.push({ path: include[1], line: lineNumber });
+    return;
+  }
+  if (scanLine(line).isMetacommand) return;
 
-    // Handle BYVAL and BYREF
-    const byRefMatch = trimmed.match(
-      /^(BYVAL\s+|BYREF\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*(?:AS\s+([A-Za-z_][A-Za-z0-9_]*))?\s*$/i
-    );
+  let code = line;
+  const lineNumberLabel = code.match(RE.lineNumber);
+  if (lineNumberLabel) {
+    out.symbols.push({
+      name: lineNumberLabel[1],
+      type: "LABEL",
+      scope: "MODULE",
+      line: lineNumber,
+      file,
+    });
+    code = code.substring(lineNumberLabel[0].length);
+  }
 
-    if (byRefMatch) {
-      const byRefKeyword = byRefMatch[1];
-      const paramName = byRefMatch[2];
-      const paramType = byRefMatch[3];
+  let statements = splitStatements(code);
+  if (
+    statements.length >= 2 &&
+    RE.label.test(statements[0].text) &&
+    !NOT_A_LABEL.has(statements[0].text.toUpperCase())
+  ) {
+    out.symbols.push({
+      name: statements[0].text,
+      type: "LABEL",
+      scope: "MODULE",
+      line: lineNumber,
+      file,
+    });
+    statements = statements.slice(1);
+  }
 
-      params.push({
-        name: paramName,
-        type: paramType,
-        byRef: byRefKeyword?.toUpperCase().includes("BYREF") || !byRefKeyword, // Default is BYREF in QB64PE
+  for (const statement of statements) {
+    if (statement.text) {
+      handleStatement(statement.text, lineNumber, physical, file, state, out);
+    }
+  }
+}
+
+function handleStatement(
+  s: string,
+  line: number,
+  physical: string[],
+  file: string,
+  state: State,
+  out: ParseResult
+): void {
+  let m: RegExpMatchArray | null;
+
+  // DECLARE LIBRARY … END DECLARE (external routines); old-style forward
+  // DECLARE SUB/FUNCTION lines are ignored by QB64PE and by us.
+  if ((m = s.match(RE.declareLibrary))) {
+    state.library = m[1] ?? "";
+    return;
+  }
+  if (RE.endDeclare.test(s)) {
+    state.library = null;
+    return;
+  }
+  if (RE.declareForward.test(s)) return;
+
+  // TYPE … END TYPE
+  if ((m = s.match(RE.type))) {
+    const symbol: QB64Symbol = {
+      name: m[1],
+      type: "TYPE",
+      scope: "MODULE",
+      line,
+      file,
+      documentation: extractDocumentation(physical, line),
+      members: [],
+    };
+    out.symbols.push(symbol);
+    state.moduleNames.add(m[1].toLowerCase());
+    state.type = symbol;
+    return;
+  }
+  if (RE.endType.test(s)) {
+    state.type = null;
+    return;
+  }
+  if (state.type) {
+    for (const d of parseDeclarationList(s)) {
+      state.type.members.push({
+        name: d.name,
+        type: "FIELD",
+        dataType: d.dataType,
+        scope: "MODULE",
+        line,
+        file,
+        parent: state.type.name,
+        isArray: !!d.dims,
+      });
+    }
+    return;
+  }
+
+  // SUB / FUNCTION header
+  if ((m = s.match(RE.routine))) {
+    const kind = m[1].toUpperCase() as "SUB" | "FUNCTION";
+    const name = m[2];
+    const parameters = parseParameters(m[3]);
+    const symbol: QB64Symbol = {
+      name,
+      type: kind,
+      dataType: kind === "FUNCTION" ? sigilToType(name) : undefined,
+      parameters,
+      scope: "MODULE",
+      line,
+      file,
+      documentation: extractDocumentation(physical, line),
+      parameterDescriptions: extractParameterDocumentation(
+        physical,
+        line,
+        parameters
+      ),
+    };
+    if (m[4]) symbol.isStatic = true;
+    if (state.library !== null) {
+      symbol.isExternal = true;
+      symbol.library = state.library;
+    } else {
+      state.routine = {
+        name,
+        base: baseName(name),
+        params: new Set(parameters.map((p) => p.name.toLowerCase())),
+        locals: new Set<string>(),
+      };
+    }
+    out.symbols.push(symbol);
+    state.moduleNames.add(name.toLowerCase());
+    return;
+  }
+  if (RE.endRoutine.test(s)) {
+    state.routine = null;
+    return;
+  }
+
+  // DIM / REDIM / STATIC / COMMON declaration lists
+  if ((m = s.match(RE.dim))) {
+    const isShared = !!m[2];
+    for (const d of parseDeclarationList(m[3])) {
+      out.symbols.push({
+        name: d.name,
+        type: "VARIABLE",
+        dataType: d.dataType,
+        scope: variableScope(state, isShared),
+        line,
+        file,
+        isArray: !!d.dims,
+        isShared,
+      });
+      remember(state, d.name);
+    }
+    return;
+  }
+  if (RE.shared.test(s)) return; // SHARED x - access to a module variable
+
+  // CONST a = 1, b = 2
+  if ((m = s.match(RE.const))) {
+    for (const piece of splitTopLevelCommas(m[1])) {
+      const item = piece.trim().match(RE.constItem);
+      if (!item) continue;
+      out.symbols.push({
+        name: item[1],
+        type: "CONST",
+        scope: state.routine ? "LOCAL" : "MODULE",
+        line,
+        file,
+        documentation: extractDocumentation(physical, line),
+        value: item[2].trim(),
+      });
+      remember(state, item[1]);
+    }
+    return;
+  }
+
+  // Implicit declarations: `x = …` and `FOR i = …` on a name not yet known.
+  if ((m = s.match(RE.forLoop) || s.match(RE.assignment))) {
+    const name = m[1];
+    const lower = name.toLowerCase();
+    const routine = state.routine;
+    if (routine && (routine.params.has(lower) || baseName(name) === routine.base)) {
+      return; // parameter or the FUNCTION's own return value
+    }
+    if (isKnown(state, lower)) return;
+    out.symbols.push({
+      name,
+      type: "VARIABLE",
+      dataType: sigilToType(name),
+      scope: routine ? "LOCAL" : "MODULE",
+      line,
+      file,
+      isImplicit: true,
+    });
+    remember(state, name);
+  }
+}
+
+function variableScope(state: State, isShared: boolean): QB64SymbolScope {
+  if (isShared) return "GLOBAL";
+  return state.routine ? "LOCAL" : "MODULE";
+}
+
+function remember(state: State, name: string): void {
+  (state.routine ? state.routine.locals : state.moduleNames).add(
+    name.toLowerCase()
+  );
+}
+
+function isKnown(state: State, lower: string): boolean {
+  if (state.moduleNames.has(lower)) return true;
+  return !!state.routine && state.routine.locals.has(lower);
+}
+
+/**
+ * Parses `a AS LONG, b(10) AS STRING * 8, c%` or `AS LONG a, b` style
+ * declaration lists (DIM/REDIM/STATIC/COMMON bodies and TYPE members).
+ */
+export function parseDeclarationList(text: string): Declaration[] {
+  const declarations: Declaration[] = [];
+  let pendingType: string | undefined;
+
+  for (const piece of splitTopLevelCommas(text)) {
+    const p = piece.trim();
+    if (!p) continue;
+
+    let m = p.match(RE.declTypeFirst);
+    if (m) {
+      pendingType = collapse(m[1]);
+      declarations.push({ name: m[2], dims: m[3], dataType: pendingType });
+      continue;
+    }
+
+    m = p.match(RE.declNameFirst);
+    if (m) {
+      declarations.push({
+        name: m[1],
+        dims: m[2],
+        dataType: m[3] ? collapse(m[3]) : pendingType ?? sigilToType(m[1]),
       });
     }
   }
 
+  return declarations;
+}
+
+/**
+ * Parses the inside of a routine's parameter list, e.g.
+ * `a AS INTEGER, BYVAL b AS LONG, arr() AS STRING, n%`.
+ */
+export function parseParameters(paramText?: string): Parameter[] {
+  if (!paramText || paramText.trim() === "") return [];
+
+  const params: Parameter[] = [];
+  for (const piece of splitTopLevelCommas(paramText)) {
+    const m = piece.trim().match(RE.param);
+    if (!m) continue;
+    params.push({
+      name: m[2],
+      type: m[4] ? collapse(m[4]) : sigilToType(m[2]),
+      byRef: !(m[1] && m[1].toUpperCase() === "BYVAL"), // BYREF is the default
+      isArray: !!m[3],
+    });
+  }
   return params;
 }
 
@@ -239,42 +466,26 @@ export function extractDocumentation(
 ): string {
   const docLines: string[] = [];
 
-  // Look backwards for comments above the declaration
   for (let i = currentIndex - 1; i >= 0; i--) {
     const line = lines[i].trim();
     if (line.startsWith("'")) {
-      // Clean the comment line by removing all leading apostrophes and whitespace
       const cleanLine = cleanCommentLine(line);
-      if (cleanLine.length > 0) {
-        // Skip @param lines - they're used for parameter documentation, not main description
-        if (!cleanLine.match(/^\s*@param\s+/i)) {
-          docLines.unshift(cleanLine);
-        }
+      if (cleanLine.length > 0 && !/^\s*@param\s+/i.test(cleanLine)) {
+        docLines.unshift(cleanLine);
       }
     } else if (line === "") {
-      continue; // Skip empty lines
+      continue;
     } else {
-      break; // Stop at first non-comment, non-empty line
+      break;
     }
   }
 
   return docLines.length > 0 ? docLines.join("\n") : "";
 }
 
-/**
- * Strips the leading apostrophes and whitespace from a comment line.
- * Handles cases like: ', '', ' text, '' text, etc.
- */
+/** Strips the leading apostrophes and whitespace from a comment line. */
 export function cleanCommentLine(line: string): string {
-  let cleaned = line;
-
-  // Remove leading apostrophes (one or more)
-  cleaned = cleaned.replace(/^'+/, "");
-
-  // Remove leading whitespace
-  cleaned = cleaned.replace(/^\s+/, "");
-
-  return cleaned;
+  return line.replace(/^'+/, "").replace(/^\s+/, "");
 }
 
 /**
@@ -291,59 +502,43 @@ export function extractParameterDocumentation(
   const paramDescriptions = new Map<string, string>();
   const docLines: string[] = [];
 
-  // Look backwards for comments above the declaration
   for (let i = currentIndex - 1; i >= 0; i--) {
     const line = lines[i].trim();
     if (line.startsWith("'")) {
-      // Clean the comment line by removing all leading apostrophes and whitespace
       const cleanLine = cleanCommentLine(line);
-      if (cleanLine.length > 0) {
-        docLines.unshift(cleanLine);
-      }
+      if (cleanLine.length > 0) docLines.unshift(cleanLine);
     } else if (line === "") {
-      continue; // Skip empty lines
+      continue;
     } else {
-      break; // Stop at first non-comment, non-empty line
+      break;
     }
   }
 
-  // Parse parameter descriptions from documentation
   for (const docLine of docLines) {
-    // Look for @param paramName description patterns
     const paramMatch = docLine.match(
       /^\s*@param\s+([A-Za-z_][A-Za-z0-9_]*)\s+(.+)$/i
     );
     if (paramMatch) {
-      const paramName = paramMatch[1];
-      const description = paramMatch[2];
-      paramDescriptions.set(paramName.toLowerCase(), description);
+      paramDescriptions.set(paramMatch[1].toLowerCase(), paramMatch[2]);
       continue;
     }
 
-    // Look for 'paramName - description' or 'paramName: description' patterns
     const colonMatch = docLine.match(
       /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*[-:]\s*(.+)$/
     );
-    if (colonMatch) {
-      const paramName = colonMatch[1];
-      const description = colonMatch[2];
-      // Only add if this is actually a parameter name
-      if (
-        parameters.some(
-          (p) => p.name.toLowerCase() === paramName.toLowerCase()
-        )
-      ) {
-        paramDescriptions.set(paramName.toLowerCase(), description);
-      }
+    if (
+      colonMatch &&
+      parameters.some(
+        (p) => p.name.toLowerCase() === colonMatch[1].toLowerCase()
+      )
+    ) {
+      paramDescriptions.set(colonMatch[1].toLowerCase(), colonMatch[2]);
     }
   }
 
-  // Update parameter objects with descriptions
   for (const param of parameters) {
     const description = paramDescriptions.get(param.name.toLowerCase());
-    if (description) {
-      param.description = description;
-    }
+    if (description) param.description = description;
   }
 
   return paramDescriptions;
