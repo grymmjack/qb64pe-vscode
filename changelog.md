@@ -2,6 +2,10 @@
 
 All notable changes to the "QB64 PE" extension will be documented in this file.
 
+## 0.16.1
+
+- Debugger: fixed "LIBRARY not found" when debugging multi-file programs whose `$INCLUDE`d files use `DECLARE LIBRARY` with a header that sits next to the include (e.g. DRAW's `filedialog_platform`). Flattening now rewrites such a library spec to the absolute path of its original directory so the header stays findable; system libraries (no sibling header) are left unchanged.
+
 ## 0.16.0
 
 - Debugger: **full multi-file debugging** (`$INCLUDE`). You can now set breakpoints, step, see the call stack, and inspect variables inside `.bi`/`.bm` include files — not just the main file. QB64PE only instruments the main module, so the extension flattens your whole `$INCLUDE` graph into the temporary file it compiles (honoring `$INCLUDEONCE`, nested includes and cycles) and maps every line back to its real file, so stops and breakpoints land in the correct source. This is something the QB64PE IDE's own debugger can't do. (The previous "breakpoints only work in the main module" limitation is gone.)

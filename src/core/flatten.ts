@@ -34,9 +34,17 @@ export interface FlattenIO {
   readFile: (absPath: string) => string | null;
   /** Resolve an `$INCLUDE` spec relative to the including file (abs path or null). */
   resolve: (spec: string, fromFile: string) => string | null;
+  /**
+   * Given a `DECLARE LIBRARY "spec"` found in `fromFile`, return an absolute
+   * path to rewrite the spec to (so the library header stays findable after the
+   * declaration is moved into the flattened file), or null to leave it as-is
+   * (e.g. a system library not sibling to the source).
+   */
+  resolveLibrary?: (spec: string, fromFile: string) => string | null;
 }
 
 const INCLUDEONCE_RE = /^\s*\$INCLUDEONCE\b/i;
+const DECLARE_LIBRARY_RE = /^(\s*DECLARE\s+(?:DYNAMIC\s+)?LIBRARY\s+)"([^"]*)"(.*)$/i;
 
 /**
  * Flatten `entryFile` and everything it includes. Files that declare
@@ -67,6 +75,13 @@ export function flatten(entryFile: string, io: FlattenIO): FlattenResult {
     stack.add(absFile);
     lines.forEach((raw, i) => {
       const lineNo = i + 1;
+      // Keep a moved DECLARE LIBRARY's header findable by absolutizing its spec.
+      const lib = io.resolveLibrary ? DECLARE_LIBRARY_RE.exec(raw) : null;
+      if (lib) {
+        const abs = io.resolveLibrary!(lib[2], absFile);
+        emit(absFile, lineNo, abs ? `${lib[1]}"${abs}"${lib[3]}` : raw);
+        return;
+      }
       const directive = fileDirectiveAt(raw);
       if (directive && directive.kind === "INCLUDE") {
         // Neutralize the directive (never emit it verbatim, or the compiler

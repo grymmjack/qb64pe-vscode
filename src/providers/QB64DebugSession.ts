@@ -1386,6 +1386,7 @@ export class QB64DebugSession extends LoggingDebugSession {
         }
       },
       resolve: (spec, from) => resolver(from, spec),
+      resolveLibrary: (spec, from) => this.resolveLibrary(spec, from),
     });
     this.origins = result.origins;
     this.flatByFile = buildReverseMap(result.origins, normalizePath);
@@ -1409,6 +1410,23 @@ export class QB64DebugSession extends LoggingDebugSession {
         `Flattened ${this.flatByFile.size} file(s) into ${this.origins.length} lines.\n`
       );
     }
+  }
+
+  /**
+   * A `DECLARE LIBRARY "spec"` header lives next to its declaring file; after
+   * flattening moves the declaration, rewrite the spec to that absolute path so
+   * the compiler still finds the header. Only user libraries (a sibling
+   * `spec.h`) are rewritten; system libraries are left alone.
+   */
+  private resolveLibrary(spec: string, fromFile: string): string | null {
+    if (!spec) return null;
+    const clean = spec.replace(/^\.[\\/]/, "").replace(/\\/g, "/");
+    if (path.isAbsolute(clean)) return null;
+    const dir = path.dirname(fromFile);
+    const hasHeader =
+      fs.existsSync(path.join(dir, clean + ".h")) ||
+      fs.existsSync(path.join(dir, clean));
+    return hasHeader ? path.join(dir, clean).replace(/\\/g, "/") : null;
   }
 
   /** Flattened line for an editor (file, line), if it maps. */

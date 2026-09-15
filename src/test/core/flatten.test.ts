@@ -77,6 +77,28 @@ describe("core/flatten", () => {
     assert.ok(text.includes("missing $INCLUDE: gone.bi"));
   });
 
+  it("rewrites DECLARE LIBRARY specs to keep the header findable", () => {
+    const files = {
+      "/p/main.bas": "'$INCLUDE:'sub/lib.bi'",
+      "/p/sub/lib.bi": 'DECLARE LIBRARY "mylib"\nEND DECLARE LIBRARY',
+    };
+    const base = io(files);
+    const withLib = {
+      ...base,
+      resolveLibrary: (spec: string, from: string) =>
+        spec === "mylib" ? "/p/sub/mylib" : null,
+    };
+    const { text } = flatten("/p/main.bas", withLib);
+    assert.ok(text.includes('DECLARE LIBRARY "/p/sub/mylib"'));
+    // A system library (resolveLibrary returns null) is left untouched.
+    const files2 = { "/p/main.bas": 'DECLARE LIBRARY "GL"\nEND DECLARE LIBRARY' };
+    const { text: t2 } = flatten("/p/main.bas", {
+      ...io(files2),
+      resolveLibrary: () => null,
+    });
+    assert.ok(t2.includes('DECLARE LIBRARY "GL"'));
+  });
+
   it("builds a reverse (file,line)->flatLine map", () => {
     const files = {
       "/p/main.bas": ["X = 1", "'$INCLUDE:'lib.bm'", "PRINT X"].join("\n"),
