@@ -358,3 +358,6 @@ out/extension.js.map
 
 # VS Code download used by the integration tests
 .vscode-test/
+
+# generated standalone CLI bundle
+bin/
