@@ -24,7 +24,8 @@ A VSCode extension that adds support for [QB64 PE](https://www.qb64phoenix.com).
 - **Hover & signature help** for your own SUBs/FUNCTIONs (declaration, doc comments, parameters, return type, TYPE members) and for built-in keywords — converted live from your installed QB64PE help and cached, so it matches your version (falls back to the bundled help; toggle with `qb64pe.isLiveHelpEnabled`)
 - **Inline Code Templates**: multi-line completions for game loops, graphics setup, input handling, and more
 - `F1` to _open help_ for the keyword under the cursor — the live-converted page (or bundled/online fallback) in a Markdown preview; `Ctrl+F1` keyword list alphabetical; `Shift+F1` keyword list by usage
-- `F5` to Build & Run, `ctrl+shift+b` to build the current file
+- **Source-level debugging** (`F5`): set breakpoints in your `.bas`, press `F5`, and the program stops on that line. Step in / over / out (`F11` / `F10` / `Shift+F11`), a real call stack across your SUBs/FUNCTIONs, jump-to-cursor, pause and stop. It works by compiling with `$DEBUG` (auto-added if missing) and hosting QB64PE's own `vwatch` debugger — no `launch.json` needed. Use `Ctrl+F5` (Run Without Debugging) for the plain terminal build & run. See [debugging notes](#debugging-notes) below.
+- `ctrl+shift+b` to build the current file
 - Syntax highlighting for QB64PE (up to the latest version)
 - Highlights TODOs in the comments (own view in the Explorer)
 - Box around (\_)rgb(32) commands the color of the command
@@ -41,6 +42,26 @@ Comment lines directly above a `SUB`, `FUNCTION`, `TYPE` or `CONST` become its h
 ' @param dx horizontal delta
 FUNCTION MovePlayer% (p AS Player, dx AS INTEGER)
 ```
+
+### Debugging notes
+
+The debugger drives QB64PE's built-in `vwatch` protocol, so it inherits vwatch's
+scope:
+
+- **Breakpoints and stepping work on lines in the file you launch** (the main
+  module) — including SUBs/FUNCTIONs written in that same file.
+- **Breakpoints inside `$INCLUDE`d `.bi`/`.bm` files do not bind** — QB64PE only
+  instruments main-module lines (the official IDE has the same limit). Such
+  breakpoints are shown greyed-out with a reason, and the call stack still
+  resolves routines defined in includes to the right file.
+- **The Variables/Watch panel lists the names and declared types in scope** (and
+  real values for `CONST`s), but **live variable *values* are not shown yet**:
+  reading them needs per-variable storage indexes that the QB64PE compiler
+  assigns internally and does not emit as a manifest. This is the one piece the
+  official IDE can do that we can't without a compiler change.
+- Your program needs `$DEBUG`; if it's missing, a temporary copy with `$DEBUG`
+  appended is compiled (your line numbers are preserved). Toggle with
+  `qb64pe.debug.autoAddDebug`. Ports and timeout: `qb64pe.debug.*`.
 
 ## Requirements
 

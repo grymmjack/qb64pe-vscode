@@ -74,6 +74,18 @@ Two layers:
    and command. Adding a language feature = a core module with tests + a small provider +
    one `register*` call.
 
+The **debugger** follows the same two-layer split: `src/core/vwatchProtocol.ts` is a
+vscode-free codec for QB64PE's `vwatch` protocol (MKL$ length framing, message
+parse/encode, call-stack + `address read` parsing, typed value decode — unit-tested in
+`src/test/core/vwatchProtocol.test.ts`), and `providers/QB64DebugSession.ts` is an inline
+Debug Adapter (`@vscode/debugadapter`) that compiles the program with `$DEBUG`, hosts a TCP
+server the debuggee connects back to (`QB64DEBUGPORT`), and maps vwatch ↔ DAP using the
+shared `SymbolIndex` for source/line/call-stack mapping. `DebugAdapterDescriptorFactory`
+routes `program` configs (F5) to it and `command` configs (Ctrl+F5 / custom) to the terminal
+build & run. Ground truth for the protocol is the user's `internal/support/vwatch/vwatch.bm`;
+`docs/DEBUGGER_PLAN.md` documents the design and the two hard limits (breakpoints bind only in
+the main module; live variable values need a compiler manifest QB64PE doesn't emit).
+
 Other pieces: hover keyword help is served by `providers/HelpService.ts`, which converts the
 user's *installed* QB64PE wiki source (`<installPath>/internal/help/*.txt`) via `core/wikitext`
 and caches it (memory + globalStorage by mtime), falling back to the bundled `help/*.md`

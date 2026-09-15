@@ -7,8 +7,28 @@ Protocol (DAP) to QB64PE's own `vwatch` debugger protocol.
 
 **Audience:** maintainer + contributors working on this extension.
 
-**Status:** planned. This document is the spec and milestone plan; no debugger code
-exists on `main` yet (only the F5 build-&-run launcher shipped in 0.11.1).
+**Status:** implemented on branch `debugger` (v0.12.0). M1–M4 landed:
+`src/core/vwatchProtocol.ts` (codec, 24 unit tests) + `src/providers/QB64DebugSession.ts`
+(inline DAP session) + factory routing + `package.json` contributions.
+
+Two findings from the shipped `vwatch.bm`/`qb64pe.bas` refined the scope below:
+
+1. **Per-line instrumentation is main-module only.** The `SUB_VWATCH` line call
+   is emitted under `... AND inclinenumber(inclevel) = 0` — so breakpoints and
+   stepping only bind on the launched file's lines (SUBs in that same file
+   included). Breakpoints inside `$INCLUDE`d files can't stop (the official IDE
+   has the same limit); we mark them unverified with a reason. Call-stack frames
+   for routines defined in includes carry a `(file, line) Name` prefix, which we
+   parse and resolve. This turned M4 from "breakpoints in includes" (impossible)
+   into "handle the include boundary correctly."
+2. **Live variable values need a compiler manifest that doesn't exist.** The
+   `get global/local var` request requires each variable's `localIndex`,
+   `storage`, `varType`, etc., which the compiler assigns *inline* during its own
+   parse pass (`vWatchVariable` → `vwatch_local_vars[N]`) with no emitted file.
+   So M3 ships the value-decode codec + scopes/variables/evaluate over the symbol
+   index (names, declared types, real CONST values), but live values remain
+   blocked on a QB64PE compiler change. The rest of this document is the original
+   plan; these two notes are the reconciliation with reality.
 
 ---
 

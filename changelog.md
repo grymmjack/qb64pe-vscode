@@ -2,6 +2,17 @@
 
 All notable changes to the "QB64 PE" extension will be documented in this file.
 
+## 0.12.0
+
+- Source-level debugger (`F5`)
+  - A real Debug Adapter that bridges VS Code to QB64PE's own `vwatch` debugger. Set a breakpoint in your `.bas`, press `F5`, and execution stops on that line in the editor.
+  - Stepping: step in / over / out (`F11` / `F10` / `Shift+F11`), continue, pause, stop, and jump-to-cursor ("set next line").
+  - A real call stack across your SUBs/FUNCTIONs, mapped back to the source via the symbol index — including routines defined in `$INCLUDE` files (their frames resolve to the right file).
+  - Works with no `launch.json`: the program is compiled with `$DEBUG` (auto-added to a temporary copy if missing, preserving line numbers) and run with the debugger hosting its `vwatch` connection. `Ctrl+F5` (Run Without Debugging) keeps the plain terminal build & run from 0.11.1.
+  - New settings: `qb64pe.debug.basePort` (default 9000, matches the IDE's BaseTCPPort), `qb64pe.debug.autoAddDebug`, `qb64pe.debug.timeoutMs`. Breakpoints are enabled for the QB64PE language, and a "QB64PE: Debug" launch snippet is contributed.
+  - Known limits (inherited from vwatch): breakpoints only bind on the main module's lines — breakpoints inside `$INCLUDE`d `.bi`/`.bm` files are shown unverified with a reason; and the Variables/Watch panel lists in-scope names + declared types (and real `CONST` values) but not live variable values yet (that needs a compiler-emitted variable manifest QB64PE does not produce). See the README "Debugging notes".
+  - Implementation: a vscode-free `vwatch` protocol codec (`src/core/vwatchProtocol.ts`, 24 unit tests pinning the wire format) plus an inline `QB64DebugSession`. Full plan in `docs/DEBUGGER_PLAN.md`. Builds on debugger groundwork by LordDurus.
+
 ## 0.11.1
 
 - Build & Run (F5)
