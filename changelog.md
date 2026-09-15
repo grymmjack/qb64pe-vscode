@@ -2,6 +2,13 @@
 
 All notable changes to the "QB64 PE" extension will be documented in this file.
 
+## 0.11.1
+
+- Build & Run (F5)
+  - Enabled the QB64PE debug launcher: press `F5` on a `.bas` to compile the current file with your `qb64pe.compilerPath` and run it in a terminal — no `launch.json` needed (a default "Build & Run" configuration is supplied). A `launch.json` with the `QB64PE` type still works for custom commands.
+  - Fixed two bugs that kept this from working: the launch command referenced `${config:qb64pecompilerPath}` (missing dot, so the compiler path never substituted), and the debug adapter was registered for type `qb64pe` while the contributed debugger is `QB64PE`.
+  - Note: this builds and runs; it is not a source-level (breakpoint) debugger. For step debugging, use QB64PE's own `$DEBUG` metacommand.
+
 ## 0.11.0
 
 - Language features (all driven by a new workspace-wide symbol index that follows `$INCLUDE` chains and understands scope)

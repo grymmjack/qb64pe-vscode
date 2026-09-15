@@ -15,7 +15,10 @@ import { ReferenceProvider } from "./providers/ReferenceProvider";
 import { DefinitionProvider } from "./providers/DefinitionProvider";
 import { DocumentSymbolProvider } from "./providers/DocumentSymbolProvider";
 import { DocumentFormattingEditProvider } from "./providers/DocumentFormattingEditProvider";
-// import { DebugAdapterDescriptorFactory } from "./providers/DebugAdapterDescriptorFactory";
+import {
+  DebugAdapterDescriptorFactory,
+  QB64PEDebugConfigurationProvider,
+} from "./providers/DebugAdapterDescriptorFactory";
 import { HoverProvider } from "./providers/HoverProvider";
 import { HelpService } from "./providers/HelpService";
 import { CompletionItemProvider } from "./providers/CompletionItemProvider";
@@ -234,7 +237,18 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(new IndexDiagnostics(workspaceIndex));
 
   // Register Miscellaneous
-  // context.subscriptions.push(vscode.debug.registerDebugAdapterDescriptorFactory("qb64pe", new DebugAdapterDescriptorFactory()));
+  // F5 build & run: the adapter type must match the "QB64PE" debugger
+  // contributed in package.json (the old registration used "qb64pe").
+  context.subscriptions.push(
+    vscode.debug.registerDebugAdapterDescriptorFactory(
+      "QB64PE",
+      new DebugAdapterDescriptorFactory()
+    ),
+    vscode.debug.registerDebugConfigurationProvider(
+      "QB64PE",
+      new QB64PEDebugConfigurationProvider()
+    )
+  );
 
   decoratorFunctions.setupDecorate(workspaceIndex);
   vscodeFunctions.createFiles();
