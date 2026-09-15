@@ -306,7 +306,11 @@ export class QB64DebugSession extends LoggingDebugSession {
     this.timeoutTimer = setTimeout(() => {
       if (!this.launched) {
         this.output(
-          `Debuggee did not connect within ${timeoutMs}ms. Does the program contain $DEBUG?\n`,
+          `Debuggee did not connect within ${timeoutMs}ms. Checklist: the program compiled ` +
+            `with $DEBUG (auto-added unless qb64pe.debug.autoAddDebug is off); nothing else is ` +
+            `using port ${port}; and — on Windows — the firewall is allowing the local ` +
+            `connection (allow it once if prompted). Increase qb64pe.debug.timeoutMs for very ` +
+            `large programs.\n`,
           "stderr"
         );
         this.terminate("connect timeout");
@@ -1547,18 +1551,38 @@ export class QB64DebugSession extends LoggingDebugSession {
 
   /**
    * Find the executable the compiler actually produced. QB64PE keeps a `.run`
-   * extension but drops `.exe` on non-Windows, so probe the likely names.
+   * extension but drops `.exe` on non-Windows (and platforms vary), so probe the
+   * likely names first, then fall back to scanning the folder for a matching
+   * binary — so an unexpected name on macOS/Windows still launches.
    */
   private findProducedExe(exePath: string): string | undefined {
     const stem = exePath.replace(/\.(run|exe)$/i, "");
-    const candidates = [exePath, stem + ".run", stem + ".exe", stem];
-    return candidates.find((p) => {
+    const isFile = (p: string) => {
       try {
         return fs.existsSync(p) && fs.statSync(p).isFile();
       } catch {
         return false;
       }
-    });
+    };
+    const named = [exePath, stem + ".run", stem + ".exe", stem].find(isFile);
+    if (named) return named;
+
+    // Fallback: any freshly-produced file in the folder that starts with the
+    // program's base name and isn't obviously source/build debris.
+    try {
+      const dir = path.dirname(stem);
+      const base = path.basename(stem).toLowerCase();
+      const skip = /\.(bas|bi|bm|o|a|h|c|cpp|txt|md|manifest|map|obj|lib)$/i;
+      const matches = fs
+        .readdirSync(dir)
+        .filter((n) => n.toLowerCase().startsWith(base) && !skip.test(n))
+        .map((n) => path.join(dir, n))
+        .filter(isFile)
+        .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
+      return matches[0];
+    } catch {
+      return undefined;
+    }
   }
 
   private compile(
