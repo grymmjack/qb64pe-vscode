@@ -223,6 +223,11 @@
           "type": "boolean",
           "default": false,
           "description": "Help|Enable: Open offline help in edit mode."
+        },
+        "qb64pe.isIndexDiagnosticsEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Diagnostics|Enable: Report undefined SUB calls and labels, duplicate definitions and never-read locals from the symbol index, without compiling. Experimental."
         }
       }
     },

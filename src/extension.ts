@@ -25,6 +25,7 @@ import { RenameProvider } from "./providers/RenameProvider";
 import { DocumentHighlightProvider } from "./providers/DocumentHighlightProvider";
 import { WorkspaceSymbolProvider } from "./providers/WorkspaceSymbolProvider";
 import { FoldingRangeProvider } from "./providers/FoldingRangeProvider";
+import { IndexDiagnostics } from "./providers/IndexDiagnostics";
 import {
   SemanticTokensProvider,
   semanticTokensLegend,
@@ -215,6 +216,8 @@ export async function activate(context: vscode.ExtensionContext) {
       semanticTokensLegend
     )
   );
+
+  context.subscriptions.push(new IndexDiagnostics(workspaceIndex));
 
   // Register Miscellaneous
   // context.subscriptions.push(vscode.debug.registerDebugAdapterDescriptorFactory("qb64pe", new DebugAdapterDescriptorFactory()));
