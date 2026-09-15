@@ -187,7 +187,7 @@ export class QB64DebugSession extends LoggingDebugSession {
           `Debuggee did not connect within ${timeoutMs}ms. Does the program contain $DEBUG?\n`,
           "stderr"
         );
-        this.terminate();
+        this.terminate("connect timeout");
       }
     }, timeoutMs);
 
@@ -472,7 +472,7 @@ export class QB64DebugSession extends LoggingDebugSession {
     response: DebugProtocol.TerminateResponse,
     _args: DebugProtocol.TerminateArguments
   ): void {
-    this.terminate();
+    this.terminate("terminate request");
     this.sendResponse(response);
   }
 
@@ -480,7 +480,7 @@ export class QB64DebugSession extends LoggingDebugSession {
     response: DebugProtocol.DisconnectResponse,
     _args: DebugProtocol.DisconnectArguments
   ): void {
-    this.terminate();
+    this.terminate("disconnect request");
     this.sendResponse(response);
   }
 
@@ -519,7 +519,7 @@ export class QB64DebugSession extends LoggingDebugSession {
       /* handled by close */
     });
     socket.on("close", () => {
-      if (this.socket === socket) this.terminate();
+      if (this.socket === socket) this.terminate("socket close");
     });
   }
 
@@ -527,7 +527,11 @@ export class QB64DebugSession extends LoggingDebugSession {
     this.reader.push(chunk);
     let raw;
     while ((raw = this.reader.next()) !== null) {
-      this.dispatch(interpret(raw));
+      try {
+        this.dispatch(interpret(raw));
+      } catch (e) {
+        this.output(`[dispatch error] ${e instanceof Error ? e.stack : e}\n`, "stderr");
+      }
     }
   }
 
@@ -563,7 +567,7 @@ export class QB64DebugSession extends LoggingDebugSession {
         break;
       case "quit":
         this.output(`${msg.reason}\n`);
-        this.terminate();
+        this.terminate("quit: " + msg.reason);
         break;
       case "unknown":
         this.output(`[vwatch] unhandled: ${msg.command}\n`);
@@ -748,11 +752,11 @@ export class QB64DebugSession extends LoggingDebugSession {
     child.stderr?.on("data", (d) => this.output(d.toString(), "stderr"));
     child.on("error", (err) => {
       this.output(`Failed to launch program: ${err.message}\n`, "stderr");
-      this.terminate();
+      this.terminate("child error");
     });
     child.on("close", () => {
       // The socket 'close' usually fires first; this is a backstop.
-      this.terminate();
+      this.terminate("child close");
     });
   }
 
@@ -777,7 +781,8 @@ export class QB64DebugSession extends LoggingDebugSession {
   // ---- teardown ------------------------------------------------------------
 
   private terminated = false;
-  private terminate(): void {
+  private terminate(reason = "unknown"): void {
+    if (!this.terminated) this.output(`Session ending (${reason}).\n`);
     if (this.terminated) return;
     this.terminated = true;
     if (this.timeoutTimer) clearTimeout(this.timeoutTimer);
@@ -816,6 +821,6 @@ export class QB64DebugSession extends LoggingDebugSession {
   private fail(response: DebugProtocol.Response, message: string): void {
     this.output(message + "\n", "stderr");
     this.sendErrorResponse(response, { id: 1001, format: message });
-    this.terminate();
+    this.terminate("fail: " + message);
   }
 }

@@ -2,6 +2,10 @@
 
 All notable changes to the "QB64 PE" extension will be documented in this file.
 
+## 0.12.5
+
+- Debugger: log the reason the session ends (e.g. disconnect request, socket close, quit) and guard message dispatch so an exception is reported instead of silently ending the session. Diagnostics for the step-into teardown.
+
 ## 0.12.4
 
 - Debugger: added a `qb64pe.debug.trace` setting (on by default) that logs the vwatch protocol exchange to the Debug Console, and removed a redundant per-stop request. Diagnostics for stabilizing stepping.
