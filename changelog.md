@@ -2,6 +2,10 @@
 
 All notable changes to the "QB64 PE" extension will be documented in this file.
 
+## 0.16.2
+
+- Debugger: colour-valued variables now show a readable hint. A variable whose name looks like a colour (`*color`, `fg`, `bg`, `clr*`) and whose value is a 32-bit `_RGB32`/`&HAARRGGBB` number is annotated, e.g. `fgColor = 4294638330  (#FAFAFA A:255)`, in the Variables and Watch panels. (VS Code's debug view can't render an actual colour swatch.)
+
 ## 0.16.1
 
 - Debugger: fixed "LIBRARY not found" when debugging multi-file programs whose `$INCLUDE`d files use `DECLARE LIBRARY` with a header that sits next to the include (e.g. DRAW's `filedialog_platform`). Flattening now rewrites such a library spec to the absolute path of its original directory so the header stays findable; system libraries (no sibling header) are left unchanged.

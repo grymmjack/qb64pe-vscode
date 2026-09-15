@@ -476,7 +476,7 @@ export class QB64DebugSession extends LoggingDebugSession {
   >();
   private readonly evalPending = new Map<
     number,
-    { response: DebugProtocol.EvaluateResponse; varType: string }
+    { response: DebugProtocol.EvaluateResponse; varType: string; name?: string }
   >();
   /** UPPER type name -> TYPE symbol (built lazily from the index). */
   private typeByName?: Map<string, QB64Symbol>;
@@ -722,7 +722,7 @@ export class QB64DebugSession extends LoggingDebugSession {
       this.varPending.delete(read.tempIndex);
       info.batch.vars.push({
         name: info.name,
-        value: this.formatValue(info.varType, read.bytes),
+        value: this.formatValue(info.varType, read.bytes, info.name),
         variablesReference: info.ref ?? 0,
       });
       info.batch.remaining -= 1;
@@ -733,17 +733,38 @@ export class QB64DebugSession extends LoggingDebugSession {
     if (ev) {
       this.evalPending.delete(read.tempIndex);
       ev.response.body = {
-        result: this.formatValue(ev.varType, read.bytes),
+        result: this.formatValue(ev.varType, read.bytes, ev.name),
         variablesReference: 0,
       };
       this.sendResponse(ev.response);
     }
   }
 
-  private formatValue(varType: string, bytes: Buffer): string {
+  private formatValue(varType: string, bytes: Buffer, name?: string): string {
     const decoded = decodeValue(varType, bytes);
     if (!decoded) return "<unreadable>";
-    return decoded.text + (decoded.approximate ? " (approx)" : "");
+    let text = decoded.text + (decoded.approximate ? " (approx)" : "");
+    const color = name ? this.colorHint(name, varType, decoded.text) : "";
+    return text + color;
+  }
+
+  /**
+   * If a variable looks like a QB64 `_RGB32` colour (name contains color/fg/bg
+   * and the value is a 32-bit integer packed as &HAARRGGBB), append a readable
+   * `#RRGGBB A:nn` hint. The Variables panel can't show a real swatch.
+   */
+  private colorHint(name: string, varType: string, valueText: string): string {
+    if (varType.toUpperCase().includes("STRING")) return "";
+    if (!/colou?r|(^|_)fg($|_)|(^|_)bg($|_)|(^|_)clr/i.test(name)) return "";
+    const n = Number(valueText);
+    if (!Number.isInteger(n)) return "";
+    const v = n >>> 0; // treat as unsigned 32-bit
+    const a = (v >>> 24) & 0xff;
+    const r = (v >>> 16) & 0xff;
+    const g = (v >>> 8) & 0xff;
+    const b = v & 0xff;
+    const hex = (x: number) => x.toString(16).padStart(2, "0").toUpperCase();
+    return `  (#${hex(r)}${hex(g)}${hex(b)} A:${a})`;
   }
 
   private settleVarBatch(batch: VarBatch): void {
@@ -888,6 +909,7 @@ export class QB64DebugSession extends LoggingDebugSession {
         localIndex: found.v.index,
         varType: found.v.varType,
         varSize: found.v.size,
+        name: found.v.name,
       });
       return;
     }
@@ -915,6 +937,7 @@ export class QB64DebugSession extends LoggingDebugSession {
       localIndex: found.v.index,
       varType: found.v.varType,
       varSize: found.v.size,
+      name: found.v.name,
       isArray: true,
       arrayIndexes: indexes,
     });
@@ -963,6 +986,7 @@ export class QB64DebugSession extends LoggingDebugSession {
       varSize: leaf.size,
       element: 1,
       elementOffset: offset,
+      name: parts[parts.length - 1],
     });
   }
 
@@ -987,19 +1011,21 @@ export class QB64DebugSession extends LoggingDebugSession {
       arrayIndexes?: number[];
       element?: number;
       elementOffset?: number;
+      name?: string;
     }
   ): void {
     if (!this.socket) {
       this.reply(response, "<no session>");
       return;
     }
+    const { name, ...req } = o;
     const tempIndex = ++this.varSeq;
-    this.evalPending.set(tempIndex, { response, varType: o.varType });
+    this.evalPending.set(tempIndex, { response, varType: o.varType, name });
     this.issueGetVar({
       isLocal,
       scope: isLocal ? this.currentSub : "",
       tempIndex,
-      ...o,
+      ...req,
     });
     setTimeout(() => {
       if (this.evalPending.delete(tempIndex)) {

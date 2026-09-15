@@ -7,9 +7,15 @@ Protocol (DAP) to QB64PE's own `vwatch` debugger protocol.
 
 **Audience:** maintainer + contributors working on this extension.
 
-**Status:** implemented on branch `debugger` (v0.12.0). M1–M4 landed:
-`src/core/vwatchProtocol.ts` (codec, 24 unit tests) + `src/providers/QB64DebugSession.ts`
-(inline DAP session) + factory routing + `package.json` contributions.
+**Status:** shipped (v0.16.x). M1–M5 complete and validated on real programs
+(including DRAW — 302 files / ~183k flattened lines). Core modules:
+`vwatchProtocol.ts` (codec), `vwatchVars.ts` (generated-C variable table →
+live values), `flatten.ts` ($INCLUDE flattening for full multi-file debugging),
+`vwatchConditions.ts` (conditional/hit-count breakpoints); the inline DAP
+session is `providers/QB64DebugSession.ts`. Delivered beyond the original plan:
+full breakpoints/stepping/variables **inside `$INCLUDE`d files** (via flattening,
+which the QB64PE IDE cannot do) and conditional breakpoints. Not yet done:
+set-variable write-back and skip-line decorations (M5 stretch).
 
 Two findings from the shipped `vwatch.bm`/`qb64pe.bas` refined the scope below:
 
