@@ -21,6 +21,7 @@ import { HoverProvider } from "./providers/HoverProvider";
 import { CompletionItemProvider } from "./providers/CompletionItemProvider";
 import { InlineCompletionItemProvider } from "./providers/InlineCompletionItemProvider";
 import { SignatureHelpProvider } from "./providers/SignatureHelpProvider";
+import { RenameProvider } from "./providers/RenameProvider";
 import { WorkspaceSymbolIndex } from "./providers/WorkspaceSymbolIndex";
 import { TodoTreeProvider } from "./TodoTreeProvider";
 
@@ -169,6 +170,13 @@ export async function activate(context: vscode.ExtensionContext) {
       new SignatureHelpProvider(workspaceIndex),
       "(",
       ","
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.languages.registerRenameProvider(
+      documentSelector,
+      new RenameProvider(workspaceIndex)
     )
   );
 
