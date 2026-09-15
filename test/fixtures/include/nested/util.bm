@@ -1,0 +1,4 @@
+' nested/util.bm - second-level include
+SUB UtilHelper (n AS LONG)
+    PRINT "util"; n
+END SUB

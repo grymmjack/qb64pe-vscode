@@ -1,0 +1,8 @@
+' nested/deep.bm - first-level include holding bodies; pulls in util.bm
+' relative to THIS file's directory, not main.bas's.
+'$INCLUDE:'util.bm'
+
+FUNCTION DeepValue& (seed AS LONG)
+    UtilHelper seed
+    DeepValue& = seed * 2
+END FUNCTION

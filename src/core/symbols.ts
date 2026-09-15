@@ -5,7 +5,13 @@
  * unit-tested with plain mocha and reused by every language provider.
  */
 
-export type QB64SymbolType = "SUB" | "FUNCTION" | "VARIABLE" | "TYPE" | "CONST";
+export type QB64SymbolType =
+  | "SUB"
+  | "FUNCTION"
+  | "VARIABLE"
+  | "TYPE"
+  | "CONST"
+  | "LABEL";
 
 export type QB64SymbolScope = "LOCAL" | "MODULE" | "GLOBAL";
 
