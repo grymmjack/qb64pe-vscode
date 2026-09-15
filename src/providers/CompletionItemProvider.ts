@@ -5,7 +5,10 @@ import * as path from "path";
 import * as commonFunctions from "../commonFunctions";
 import * as logFunctions from "../logFunctions";
 import { TokenInfo } from "../TokenInfo";
-import { SymbolParser, QB64Symbol } from "./SymbolParser";
+import { QB64Symbol } from "../core/symbols";
+import { WorkspaceSymbolIndex } from "./WorkspaceSymbolIndex";
+import { symbolsInScope } from "../core/queries";
+import { kindLabel, signatureLabel, symbolMarkdown } from "../core/format";
 
 export class CompletionItemProvider implements vscode.CompletionItemProvider {
   private outputChannel = logFunctions.getChannel(
@@ -15,21 +18,12 @@ export class CompletionItemProvider implements vscode.CompletionItemProvider {
   private keywordCompletions: vscode.CompletionItem[] = [];
   private functionCompletions: vscode.CompletionItem[] = [];
   private statementCompletions: vscode.CompletionItem[] = [];
-  private symbolParser: SymbolParser;
-  private workspaceSymbols: QB64Symbol[] = [];
+  private readonly workspaceIndex: WorkspaceSymbolIndex;
 
-  constructor(symbolParser?: SymbolParser) {
-    this.symbolParser = symbolParser || new SymbolParser();
+  constructor(workspaceIndex: WorkspaceSymbolIndex) {
+    this.workspaceIndex = workspaceIndex;
     this.initializeKeywords();
     this.buildCompletionItems();
-    this.refreshWorkspaceSymbols();
-
-    // Watch for file changes to update symbols
-    vscode.workspace.onDidSaveTextDocument(() =>
-      this.refreshWorkspaceSymbols()
-    );
-    vscode.workspace.onDidCreateFiles(() => this.refreshWorkspaceSymbols());
-    vscode.workspace.onDidDeleteFiles(() => this.refreshWorkspaceSymbols());
   }
 
   private initializeKeywords() {
@@ -1347,28 +1341,13 @@ export class CompletionItemProvider implements vscode.CompletionItemProvider {
     const completions: vscode.CompletionItem[] = [];
 
     try {
-      // Get document symbols (local scope)
-      const documentSymbols = await this.symbolParser.parseDocumentSymbols(
-        document
-      );
-
-      // Get include file symbols
-      const includeSymbols = await this.symbolParser.parseIncludeFiles(
-        document
-      );
-
-      // Get workspace symbols (global scope)
-      const allSymbols = [
-        ...documentSymbols,
-        ...includeSymbols,
-        ...this.workspaceSymbols,
-      ];
-
-      // Get symbols that are in scope at current position
-      const scopedSymbols = this.symbolParser.getSymbolsInScope(
-        document,
-        position,
-        allSymbols
+      // Everything visible here: params/locals of the enclosing routine, then
+      // this file, its includes and the rest of the compilation unit.
+      this.workspaceIndex.ensureDocument(document);
+      const scopedSymbols = symbolsInScope(
+        this.workspaceIndex.index,
+        this.workspaceIndex.keyOf(document),
+        position.line
       );
 
       // Filter symbols based on prefix
@@ -1404,42 +1383,26 @@ export class CompletionItemProvider implements vscode.CompletionItemProvider {
     switch (symbol.type) {
       case "SUB":
         completion.kind = vscode.CompletionItemKind.Method;
-        completion.detail = this.formatSubSignature(symbol);
+        completion.detail = signatureLabel(symbol);
         completion.insertText = this.createSubSnippet(symbol);
-        completion.documentation = this.createRichDocumentation(symbol);
         break;
 
       case "FUNCTION":
         completion.kind = vscode.CompletionItemKind.Function;
-        completion.detail = this.formatFunctionSignature(symbol);
+        completion.detail = signatureLabel(symbol);
         completion.insertText = this.createFunctionSnippet(symbol);
-        completion.documentation = this.createRichDocumentation(symbol);
         break;
 
       case "VARIABLE":
         completion.kind = vscode.CompletionItemKind.Variable;
-        completion.detail = `${
-          symbol.dataType || "VARIANT"
-        } (${symbol.scope.toLowerCase()}${symbol.isArray ? ", array" : ""}${
-          symbol.isShared ? ", shared" : ""
+        completion.detail = `${symbol.dataType || "SINGLE"} (${kindLabel(symbol)}${
+          symbol.isArray ? ", array" : ""
         })`;
-        completion.documentation = new vscode.MarkdownString(
-          `**VARIABLE** ${symbol.name}${
-            symbol.dataType ? ` AS ${symbol.dataType}` : ""
-          }${symbol.isArray ? " (array)" : ""}\n\n*Scope: ${
-            symbol.scope
-          }*\n\n*File: ${path.basename(symbol.file)}*`
-        );
         break;
 
       case "TYPE":
         completion.kind = vscode.CompletionItemKind.Struct;
         completion.detail = "User-defined type";
-        completion.documentation = new vscode.MarkdownString(
-          `**TYPE** ${symbol.name}\n\n${
-            symbol.documentation || "User-defined type"
-          }\n\n*File: ${path.basename(symbol.file)}*`
-        );
         break;
 
       case "CONST":
@@ -1447,18 +1410,12 @@ export class CompletionItemProvider implements vscode.CompletionItemProvider {
         completion.detail = symbol.value
           ? `CONST ${symbol.name} = ${symbol.value}`
           : "User-defined constant";
-        completion.documentation = new vscode.MarkdownString(
-          `**CONST** ${symbol.name}${
-            symbol.value ? ` = ${symbol.value}` : ""
-          }\n\n${
-            symbol.documentation || "User-defined constant"
-          }\n\n*File: ${path.basename(symbol.file)}*`
-        );
         break;
 
       default:
         return null;
     }
+    completion.documentation = new vscode.MarkdownString(symbolMarkdown(symbol));
 
     // Add scope indicator for sorting
     if (symbol.scope === "LOCAL") {
@@ -1547,73 +1504,5 @@ export class CompletionItemProvider implements vscode.CompletionItemProvider {
     });
   }
 
-  private async refreshWorkspaceSymbols(): Promise<void> {
-    const workspaceFolders = vscode.workspace.workspaceFolders;
-    if (!workspaceFolders) return;
 
-    this.workspaceSymbols = [];
-    for (const folder of workspaceFolders) {
-      const symbols = await this.symbolParser.parseWorkspaceSymbols(folder);
-      this.workspaceSymbols.push(...symbols);
-    }
-
-    logFunctions.writeLine(
-      `Refreshed workspace symbols: ${this.workspaceSymbols.length} total`,
-      this.outputChannel
-    );
-  }
-
-  private createRichDocumentation(symbol: QB64Symbol): vscode.MarkdownString {
-    const docParts: string[] = [];
-
-    // Add symbol header
-    if (symbol.type === "SUB") {
-      docParts.push(`**SUB** ${symbol.name}`);
-    } else if (symbol.type === "FUNCTION") {
-      docParts.push(
-        `**FUNCTION** ${symbol.name}${
-          symbol.dataType ? ` AS ${symbol.dataType}` : ""
-        }`
-      );
-    } else if (symbol.type === "CONST") {
-      docParts.push(
-        `**CONST** ${symbol.name}${symbol.value ? ` = ${symbol.value}` : ""}`
-      );
-    }
-
-    // Add main documentation
-    if (symbol.documentation) {
-      docParts.push(symbol.documentation);
-    } else {
-      docParts.push(`User-defined ${symbol.type.toLowerCase()}`);
-    }
-
-    // Add parameter information
-    if (symbol.parameters && symbol.parameters.length > 0) {
-      docParts.push("**Parameters:**");
-      for (const param of symbol.parameters) {
-        let paramDoc = `- \`${param.name}\``;
-        if (param.type) {
-          paramDoc += ` (${param.type})`;
-        }
-        if (param.byRef !== undefined) {
-          paramDoc += param.byRef ? " - by reference" : " - by value";
-        }
-        if (param.description) {
-          paramDoc += `: ${param.description}`;
-        }
-        docParts.push(paramDoc);
-      }
-    }
-
-    // Add return type for functions
-    if (symbol.type === "FUNCTION" && symbol.dataType) {
-      docParts.push(`**Returns:** ${symbol.dataType}`);
-    }
-
-    // Add file location
-    docParts.push(`*File: ${path.basename(symbol.file)}*`);
-
-    return new vscode.MarkdownString(docParts.join("\n\n"));
-  }
 }

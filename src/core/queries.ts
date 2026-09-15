@@ -222,6 +222,49 @@ export function resolveName(
   return out;
 }
 
+/**
+ * Every symbol usable at (file, line), best-shadowing first and deduplicated
+ * by name: the enclosing routine's parameters and locals, then non-local
+ * symbols of this file, its includes and the rest of its unit (labels only
+ * from this file). This is the candidate set for identifier completion.
+ */
+export function symbolsInScope(
+  index: SymbolIndex,
+  file: string,
+  line: number
+): QB64Symbol[] {
+  const key = normalizePath(file);
+  const out: QB64Symbol[] = [];
+  const seen = new Set<string>();
+  const add = (s: QB64Symbol) => {
+    const k = normalizeName(s.name);
+    if (seen.has(k)) return;
+    seen.add(k);
+    out.push(s);
+  };
+
+  const routine = enclosingRoutine(index, key, line);
+  if (routine) {
+    for (const p of routine.parameters ?? []) add(parameterSymbol(routine, p));
+    const end = routine.endLine ?? END;
+    for (const s of index.symbolsOf(key)) {
+      if (s.scope === "LOCAL" && s.line >= routine.line && s.line <= end) add(s);
+    }
+  }
+
+  const found: QB64Symbol[] = [];
+  for (const f of visibleFiles(index, key)) {
+    for (const s of index.symbolsOf(f)) {
+      if (s.scope === "LOCAL") continue;
+      if (s.type === "LABEL" && f !== key) continue;
+      found.push(s);
+    }
+  }
+  if (routine) found.sort((a, b) => rank(a) - rank(b));
+  found.forEach(add);
+  return out;
+}
+
 function rank(s: QB64Symbol): number {
   if (s.type !== "VARIABLE") return 0;
   return s.scope === "GLOBAL" ? 0 : 1;

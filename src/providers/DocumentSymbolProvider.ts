@@ -1,6 +1,5 @@
 "use strict";
 import * as vscode from "vscode";
-import { symbolCache } from "../extension";
 import { todoTreeProvider } from "../extension";
 import { TodoItem } from "../TodoItem";
 
@@ -146,19 +145,6 @@ export class DocumentSymbolProvider implements vscode.DocumentSymbolProvider {
 						line.range
 					);
 
-					if (symbolKind === vscode.SymbolKind.Method || symbolKind === vscode.SymbolKind.Function) {
-						const symbolName = symbol.toLowerCase().replace(/(call|gosub|goto|:)$/i, "");
-						const existingSymbol = symbolCache.find(s => s.name === symbolName);
-						if (!existingSymbol) {
-							symbolCache.push(new vscode.DocumentSymbol(
-								symbol.toLowerCase().replace(/(call|gosub|goto|:)$/i, ""),
-								symbolText,
-								symbolKind,
-								line.range,
-								line.range
-							));
-						}
-					}
 
 					if (symbolChildren) {
 						marker_symbol.children = symbolChildren;

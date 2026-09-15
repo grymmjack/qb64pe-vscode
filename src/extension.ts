@@ -20,7 +20,7 @@ import { HoverProvider } from "./providers/HoverProvider";
 import { CompletionItemProvider } from "./providers/CompletionItemProvider";
 import { InlineCompletionItemProvider } from "./providers/InlineCompletionItemProvider";
 import { SignatureHelpProvider } from "./providers/SignatureHelpProvider";
-import { SymbolParser } from "./providers/SymbolParser";
+import { WorkspaceSymbolIndex } from "./providers/WorkspaceSymbolIndex";
 import { TodoTreeProvider } from "./TodoTreeProvider";
 
 // To switch to debug mode the scripts in the package.json need to be changed.
@@ -40,7 +40,6 @@ import { TodoTreeProvider } from "./TodoTreeProvider";
 //             ]
 //         }
 
-export var symbolCache: vscode.DocumentSymbol[] = [];
 export var todoTreeProvider: TodoTreeProvider = null;
 export async function activate(context: vscode.ExtensionContext) {
   const config = vscode.workspace.getConfiguration("qb64pe");
@@ -114,8 +113,9 @@ export async function activate(context: vscode.ExtensionContext) {
   );
 
   // Register Providers here
-  // Create shared symbol parser for enhanced completion providers
-  const symbolParser = new SymbolParser();
+  // One workspace-wide symbol index shared by every language provider.
+  const workspaceIndex = new WorkspaceSymbolIndex();
+  context.subscriptions.push(workspaceIndex);
 
   context.subscriptions.push(
     vscode.languages.registerReferenceProvider(
@@ -138,7 +138,7 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.languages.registerHoverProvider(
       documentSelector,
-      new HoverProvider(symbolParser)
+      new HoverProvider(workspaceIndex)
     )
   );
   context.subscriptions.push(
@@ -150,7 +150,7 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.languages.registerCompletionItemProvider(
       documentSelector,
-      new CompletionItemProvider(symbolParser),
+      new CompletionItemProvider(workspaceIndex),
       ".",
       "$",
       "_"
@@ -159,13 +159,13 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.languages.registerInlineCompletionItemProvider(
       documentSelector,
-      new InlineCompletionItemProvider(symbolParser)
+      new InlineCompletionItemProvider(workspaceIndex)
     )
   );
   context.subscriptions.push(
     vscode.languages.registerSignatureHelpProvider(
       documentSelector,
-      new SignatureHelpProvider(symbolParser),
+      new SignatureHelpProvider(workspaceIndex),
       "(",
       ","
     )
@@ -174,7 +174,7 @@ export async function activate(context: vscode.ExtensionContext) {
   // Register Miscellaneous
   // context.subscriptions.push(vscode.debug.registerDebugAdapterDescriptorFactory("qb64pe", new DebugAdapterDescriptorFactory()));
 
-  decoratorFunctions.setupDecorate();
+  decoratorFunctions.setupDecorate(workspaceIndex);
   vscodeFunctions.createFiles();
   gitFunctions.createGitignore();
 

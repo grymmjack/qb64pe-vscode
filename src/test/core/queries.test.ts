@@ -8,6 +8,7 @@ import {
   findDefinition,
   findOccurrences,
   resolveAt,
+  symbolsInScope,
 } from "../../core/queries";
 
 const FIXTURES = path.resolve(__dirname, "../../../test/fixtures");
@@ -234,5 +235,45 @@ describe("core/queries", () => {
         [lineOf(EDGE, "GOSUB handler"), lineOf(EDGE, "handler:")]
       );
     });
+  });
+});
+
+describe("core/queries symbolsInScope", () => {
+  const index = buildIndex();
+  const names = (file: string, line: number) =>
+    symbolsInScope(index, file, line).map((s) => s.name.toLowerCase());
+
+  it("offers params and locals inside a routine, module symbols everywhere", () => {
+    const inInit = names(BASICS, at(index, BASICS, "initialised = 1").line);
+    for (const n of ["initialised", "i", "initgame", "add", "drawspike", "vec2", "player", "max_players", "players", "level"]) {
+      assert.ok(inInit.includes(n), `expected ${n} in ${inInit.join()}`);
+    }
+    const inAdd = names(BASICS, at(index, BASICS, "Add = a + b").line);
+    assert.ok(inAdd.includes("a") && inAdd.includes("b"));
+    assert.ok(!inAdd.includes("initialised"), "another routine's local must not leak");
+
+    const atModule = names(BASICS, at(index, BASICS, "PRINT Add(1, 2)").line);
+    assert.ok(!atModule.includes("initialised") && !atModule.includes("i"));
+    assert.ok(atModule.includes("count"));
+  });
+
+  it("includes symbols from the whole compilation unit", () => {
+    const fromMain = names(MAIN, 5);
+    for (const n of ["deepvalue&", "lib_version", "libinfo", "lib_info", "utilhelper", "app_name"]) {
+      assert.ok(fromMain.includes(n), `expected ${n}`);
+    }
+    assert.ok(names(UTIL, 0).includes("app_name"), "leaf sees its root's globals");
+  });
+
+  it("dedupes by name preferring the nearest scope", () => {
+    const SC = F("virtual/scope2.bas");
+    index.setFile(SC, ["DIM i AS LONG", "SUB A", "    DIM i AS STRING", "    i = \"x\"", "END SUB"].join("\n"));
+    try {
+      const inA = symbolsInScope(index, SC, 3).filter((s) => s.name === "i");
+      assert.strictEqual(inA.length, 1);
+      assert.strictEqual(inA[0].dataType, "STRING");
+    } finally {
+      index.removeFile(SC);
+    }
   });
 });
