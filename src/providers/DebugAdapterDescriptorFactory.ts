@@ -41,3 +41,31 @@ export class DummyDebugSession extends debugadapter.DebugSession {
 	}
 }
 
+
+/**
+ * Supplies a default "build & run the current file" configuration so pressing
+ * F5 on a QB64PE file works without a launch.json. VS Code calls this with an
+ * empty config when none is defined; we fill in the compile-and-run command.
+ */
+export class QB64PEDebugConfigurationProvider
+	implements vscode.DebugConfigurationProvider {
+	resolveDebugConfiguration(
+		_folder: vscode.WorkspaceFolder | undefined,
+		config: vscode.DebugConfiguration
+	): vscode.ProviderResult<vscode.DebugConfiguration> {
+		if (!config.type && !config.request && !config.name) {
+			const editor = vscode.window.activeTextEditor;
+			if (!editor || editor.document.languageId !== "QB64PE") {
+				return undefined; // nothing to run
+			}
+			config.type = "QB64PE";
+			config.request = "launch";
+			config.name = "QB64PE: Build & Run";
+		}
+		if (!config.command) {
+			config.command =
+				"${config:qb64pe.compilerPath} -c ${file} -o ${fileDirname}/${fileBasenameNoExtension}.exe -x; ${fileDirname}/${fileBasenameNoExtension}.exe";
+		}
+		return config;
+	}
+}
