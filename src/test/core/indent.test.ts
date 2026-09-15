@@ -2,6 +2,8 @@ import * as assert from "assert";
 import { reindent } from "../../core/indent";
 
 const fmt = (src: string[]) => reindent(src.join("\n"), "  ").split("\n");
+const fmtOpt = (src: string[], unit: string, opts: any) =>
+  reindent(src.join("\n"), unit, opts).split("\n");
 
 describe("core/indent", () => {
   it("indents SUB / FOR / IF blocks", () => {
@@ -102,6 +104,20 @@ describe("core/indent", () => {
     assert.deepStrictEqual(
       fmt(["$IF WIN THEN", "CONST SLASH = 92", "$END IF"]),
       ["$IF WIN THEN", "  CONST SLASH = 92", "$END IF"]
+    );
+  });
+
+  it("keeps SUB/FUNCTION bodies flush when indentSubs is off (but nests inside)", () => {
+    assert.deepStrictEqual(
+      fmtOpt(["SUB S", "IF x THEN", "y = 1", "END IF", "END SUB"], "  ", { indentSubs: false }),
+      ["SUB S", "IF x THEN", "  y = 1", "END IF", "END SUB"]
+    );
+  });
+
+  it("honors a custom indent unit (e.g. 4 spaces)", () => {
+    assert.deepStrictEqual(
+      fmtOpt(["SUB S", "x = 1", "END SUB"], "    ", {}),
+      ["SUB S", "    x = 1", "END SUB"]
     );
   });
 
