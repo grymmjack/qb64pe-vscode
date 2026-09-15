@@ -30,7 +30,12 @@ export interface Diagnostic {
   range: Range;
   message: string;
   severity: Severity;
-  code: "duplicate" | "undefined-label" | "undefined-sub" | "unused-local";
+  code:
+    | "duplicate"
+    | "undefined-label"
+    | "undefined-sub"
+    | "unused-local"
+    | "missing-include";
   /** Render faded (VS Code's Unnecessary tag). */
   unnecessary?: boolean;
 }
@@ -66,6 +71,7 @@ export function diagnose(index: SymbolIndex, file: string): Diagnostic[] {
   duplicates(index, key, out);
   undefinedNames(index, key, entry.lines, entry.symbols, out);
   unusedLocals(index, key, entry.symbols, out);
+  missingIncludes(index, key, entry.lines, out);
   return out.sort(
     (a, b) => a.range.start.line - b.range.start.line || a.range.start.character - b.range.start.character
   );
@@ -196,6 +202,30 @@ function undefinedNames(
         code: "undefined-sub",
       });
     }
+  }
+}
+
+/** Flag `$INCLUDE` directives whose file could not be resolved. */
+function missingIncludes(
+  index: SymbolIndex,
+  key: string,
+  lines: string[],
+  out: Diagnostic[]
+): void {
+  for (const inc of index.unresolvedIncludesOf(key)) {
+    const line = lines[inc.line] ?? "";
+    const at = line.indexOf(inc.path);
+    const start = at >= 0 ? at : 0;
+    out.push({
+      file: key,
+      range: {
+        start: { line: inc.line, character: start },
+        end: { line: inc.line, character: start + (at >= 0 ? inc.path.length : 1) },
+      },
+      message: `$INCLUDE file not found: '${inc.path}'.`,
+      severity: "warning",
+      code: "missing-include",
+    });
   }
 }
 

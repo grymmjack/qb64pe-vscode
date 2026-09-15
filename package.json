@@ -2,7 +2,7 @@
   "name": "qb64pe",
   "displayName": "QB64PE",
   "description": "QB64PE (Phoenix Edition) language support for Visual Studio Code with intelligent code completion and 500+ keywords.",
-  "version": "0.17.1",
+  "version": "0.18.0",
   "engines": {
     "vscode": "^1.78.1"
   },
@@ -300,8 +300,8 @@
         },
         "qb64pe.isIndexDiagnosticsEnabled": {
           "type": "boolean",
-          "default": false,
-          "description": "Diagnostics|Enable: Report undefined SUB calls and labels, duplicate definitions and never-read locals from the symbol index, without compiling. Experimental."
+          "default": true,
+          "description": "Diagnostics|Enable: Live linting as you type — report undefined SUB calls and labels, duplicate definitions, never-read locals, and unresolved $INCLUDE files from the symbol index, without compiling. Shown as squiggles and Problems-pane entries. Turn off for compiler-only linting."
         },
         "qb64pe.isLiveHelpEnabled": {
           "type": "boolean",

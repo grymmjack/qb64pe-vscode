@@ -6,12 +6,13 @@ import { Diagnostic, diagnose } from "../core/diagnostics";
 import { toVsRange } from "./convert";
 
 const SETTING = "isIndexDiagnosticsEnabled";
-const DEBOUNCE_MS = 400;
+const DEBOUNCE_MS = 300;
 
 /**
  * Publishes the index-driven diagnostics (see core/diagnostics.ts) for open
  * QB64PE documents into their own "QB64PE-index" collection, separate from
- * the compiler lint. Off unless qb64pe.isIndexDiagnosticsEnabled is set.
+ * the compiler lint. Live as you type (debounced); on by default via
+ * qb64pe.isIndexDiagnosticsEnabled.
  */
 export class IndexDiagnostics implements vscode.Disposable {
   private readonly collection = vscode.languages.createDiagnosticCollection("QB64PE-index");
@@ -24,6 +25,10 @@ export class IndexDiagnostics implements vscode.Disposable {
       this.collection,
       workspaceIndex.onDidChange(() => this.schedule()),
       vscode.workspace.onDidOpenTextDocument(() => this.schedule()),
+      // Live linting: re-check as the user types (debounced), not just on save.
+      vscode.workspace.onDidChangeTextDocument((e) => {
+        if (e.document.languageId === "QB64PE") this.schedule();
+      }),
       vscode.workspace.onDidCloseTextDocument((d) => this.collection.delete(d.uri)),
       vscode.workspace.onDidChangeConfiguration((e) => {
         if (e.affectsConfiguration(`qb64pe.${SETTING}`)) this.refresh();
@@ -33,7 +38,7 @@ export class IndexDiagnostics implements vscode.Disposable {
   }
 
   private enabled(): boolean {
-    return vscode.workspace.getConfiguration("qb64pe").get<boolean>(SETTING, false);
+    return vscode.workspace.getConfiguration("qb64pe").get<boolean>(SETTING, true);
   }
 
   private schedule(): void {
