@@ -2,6 +2,10 @@
 
 All notable changes to the "QB64 PE" extension will be documented in this file.
 
+## 0.12.1
+
+- Debugger: fixed F5 launching the terminal build & run instead of the debugger. The `initialConfigurations`/environment-picker path used a `command`-based config, which routed away from the DAP session; the default configuration is now the `program`-based debug config, and a dynamic configuration provider offers "QB64PE: Debug" on F5 so it starts the real debugger. Added connect/handshake/stop logging to the Debug Console. (Reminder: put breakpoints on executable lines — a bare `DIM` declaration emits no debug line and can't be hit.)
+
 ## 0.12.0
 
 - Source-level debugger (`F5`)

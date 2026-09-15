@@ -66,6 +66,25 @@ export class DummyDebugSession extends debugadapter.DebugSession {
  */
 export class QB64PEDebugConfigurationProvider
 	implements vscode.DebugConfigurationProvider {
+	/**
+	 * Offered when VS Code asks what to run (F5 with no launch.json, or the
+	 * "Add Configuration" list). Returning the debug config here means picking
+	 * "QB64PE" starts the real debugger rather than the terminal build & run.
+	 */
+	provideDebugConfigurations(
+		_folder: vscode.WorkspaceFolder | undefined
+	): vscode.ProviderResult<vscode.DebugConfiguration[]> {
+		return [
+			{
+				name: "QB64PE: Debug",
+				type: "QB64PE",
+				request: "launch",
+				program: "${file}",
+				stopOnEntry: false,
+			},
+		];
+	}
+
 	resolveDebugConfiguration(
 		_folder: vscode.WorkspaceFolder | undefined,
 		config: vscode.DebugConfiguration

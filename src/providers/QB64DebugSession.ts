@@ -512,6 +512,7 @@ export class QB64DebugSession extends LoggingDebugSession {
       return;
     }
     this.socket = socket;
+    this.output("Debuggee connected.\n");
     socket.on("data", (chunk) => this.onData(chunk));
     socket.on("error", () => {
       /* handled by close */
@@ -585,11 +586,16 @@ export class QB64DebugSession extends LoggingDebugSession {
 
     // `break` stops at the first line; `run` proceeds (stopping only at a
     // breakpoint on the entry line).
+    this.output(
+      `Handshake complete; breakpoints at [${lines.join(", ") || "none"}]; ` +
+        `${this.stopOnEntry ? "stopping at entry" : "running"}.\n`
+    );
     this.send(this.stopOnEntry ? VWatchOut.Break : VWatchOut.Run);
   }
 
   /** Handle a stop: refresh state, ask for sub + call stack, notify VS Code. */
   private onStop(line: number, reason: string): void {
+    this.output(`Stopped at line ${line} (${reason}).\n`);
     this.currentLine = line;
     this.callStackReady = false;
     this.callStack = [];
