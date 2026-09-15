@@ -9,18 +9,29 @@ import * as logFunctions from "./logFunctions";
 import * as commonFunctions from "./commonFunctions";
 import * as webViewFunctions from "./webViewFunctions";
 import * as openInQB64PEFunctions from "./openInQB64PEFunctions";
+import * as todoFunctions from "./todoFunctions";
 import * as path from "path";
-import { TokenInfo } from "./TokenInfo";
 import { ReferenceProvider } from "./providers/ReferenceProvider";
 import { DefinitionProvider } from "./providers/DefinitionProvider";
 import { DocumentSymbolProvider } from "./providers/DocumentSymbolProvider";
 import { DocumentFormattingEditProvider } from "./providers/DocumentFormattingEditProvider";
 // import { DebugAdapterDescriptorFactory } from "./providers/DebugAdapterDescriptorFactory";
 import { HoverProvider } from "./providers/HoverProvider";
+import { HelpService } from "./providers/HelpService";
 import { CompletionItemProvider } from "./providers/CompletionItemProvider";
 import { InlineCompletionItemProvider } from "./providers/InlineCompletionItemProvider";
 import { SignatureHelpProvider } from "./providers/SignatureHelpProvider";
-import { SymbolParser } from "./providers/SymbolParser";
+import { RenameProvider } from "./providers/RenameProvider";
+import { DocumentHighlightProvider } from "./providers/DocumentHighlightProvider";
+import { WorkspaceSymbolProvider } from "./providers/WorkspaceSymbolProvider";
+import { FoldingRangeProvider } from "./providers/FoldingRangeProvider";
+import { IndexDiagnostics } from "./providers/IndexDiagnostics";
+import { CallHierarchyProvider } from "./providers/CallHierarchyProvider";
+import {
+  SemanticTokensProvider,
+  semanticTokensLegend,
+} from "./providers/SemanticTokensProvider";
+import { WorkspaceSymbolIndex } from "./providers/WorkspaceSymbolIndex";
 import { TodoTreeProvider } from "./TodoTreeProvider";
 
 // To switch to debug mode the scripts in the package.json need to be changed.
@@ -40,7 +51,6 @@ import { TodoTreeProvider } from "./TodoTreeProvider";
 //             ]
 //         }
 
-export var symbolCache: vscode.DocumentSymbol[] = [];
 export var todoTreeProvider: TodoTreeProvider = null;
 export async function activate(context: vscode.ExtensionContext) {
   const config = vscode.workspace.getConfiguration("qb64pe");
@@ -63,7 +73,13 @@ export async function activate(context: vscode.ExtensionContext) {
   webViewFunctions.setupAsciiChart(context);
   context.subscriptions.push(
     vscode.commands.registerCommand("extension.showHelp", () => {
-      showHelp();
+      const editor = vscode.window.activeTextEditor;
+      const selected = editor ? editor.document.getText(editor.selection) : "";
+      const token =
+        selected.length > 0
+          ? selected.split(" ")[0]
+          : commonFunctions.getQB64Word(editor);
+      helpService.openHelp(token);
     })
   );
   context.subscriptions.push(
@@ -114,31 +130,33 @@ export async function activate(context: vscode.ExtensionContext) {
   );
 
   // Register Providers here
-  // Create shared symbol parser for enhanced completion providers
-  const symbolParser = new SymbolParser();
+  // One workspace-wide symbol index shared by every language provider.
+  const workspaceIndex = new WorkspaceSymbolIndex();
+  context.subscriptions.push(workspaceIndex);
+  const helpService = new HelpService(context);
 
   context.subscriptions.push(
     vscode.languages.registerReferenceProvider(
       commonFunctions.getDocumentSelector(),
-      new ReferenceProvider()
+      new ReferenceProvider(workspaceIndex)
     )
   );
   context.subscriptions.push(
     vscode.languages.registerDefinitionProvider(
       commonFunctions.getDocumentSelector(),
-      new DefinitionProvider()
+      new DefinitionProvider(workspaceIndex, helpService)
     )
   );
   context.subscriptions.push(
     vscode.languages.registerDocumentSymbolProvider(
       documentSelector,
-      new DocumentSymbolProvider()
+      new DocumentSymbolProvider(workspaceIndex)
     )
   );
   context.subscriptions.push(
     vscode.languages.registerHoverProvider(
       documentSelector,
-      new HoverProvider(symbolParser)
+      new HoverProvider(workspaceIndex, helpService)
     )
   );
   context.subscriptions.push(
@@ -150,7 +168,7 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.languages.registerCompletionItemProvider(
       documentSelector,
-      new CompletionItemProvider(symbolParser),
+      new CompletionItemProvider(workspaceIndex),
       ".",
       "$",
       "_"
@@ -159,22 +177,66 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.languages.registerInlineCompletionItemProvider(
       documentSelector,
-      new InlineCompletionItemProvider(symbolParser)
+      new InlineCompletionItemProvider(workspaceIndex)
     )
   );
   context.subscriptions.push(
     vscode.languages.registerSignatureHelpProvider(
       documentSelector,
-      new SignatureHelpProvider(symbolParser),
+      new SignatureHelpProvider(workspaceIndex),
       "(",
       ","
     )
   );
 
+  context.subscriptions.push(
+    vscode.languages.registerRenameProvider(
+      documentSelector,
+      new RenameProvider(workspaceIndex)
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.languages.registerDocumentHighlightProvider(
+      documentSelector,
+      new DocumentHighlightProvider(workspaceIndex)
+    )
+  );
+  context.subscriptions.push(
+    vscode.languages.registerWorkspaceSymbolProvider(
+      new WorkspaceSymbolProvider(workspaceIndex)
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.languages.registerFoldingRangeProvider(
+      documentSelector,
+      new FoldingRangeProvider()
+    )
+  );
+
+  const semanticTokensProvider = new SemanticTokensProvider(workspaceIndex);
+  context.subscriptions.push(
+    semanticTokensProvider,
+    vscode.languages.registerDocumentSemanticTokensProvider(
+      documentSelector,
+      semanticTokensProvider,
+      semanticTokensLegend
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.languages.registerCallHierarchyProvider(
+      documentSelector,
+      new CallHierarchyProvider(workspaceIndex)
+    )
+  );
+  context.subscriptions.push(new IndexDiagnostics(workspaceIndex));
+
   // Register Miscellaneous
   // context.subscriptions.push(vscode.debug.registerDebugAdapterDescriptorFactory("qb64pe", new DebugAdapterDescriptorFactory()));
 
-  decoratorFunctions.setupDecorate();
+  decoratorFunctions.setupDecorate(workspaceIndex);
   vscodeFunctions.createFiles();
   gitFunctions.createGitignore();
 
@@ -194,6 +256,10 @@ export async function activate(context: vscode.ExtensionContext) {
   vscode.commands.registerCommand("extension.refreshTodo", () =>
     todoTreeProvider.refresh()
   );
+  todoFunctions.setupTodoTracking(context, todoTreeProvider);
+
+  // Exposed as the extension's API (used by the integration tests).
+  return { workspaceIndex };
 }
 
 /**
@@ -328,10 +394,6 @@ export function openCurrentFileInQB64PE() {
  */
 export function addToGitIgnore(items: any) {
   gitFunctions.addToGitIgnore(items);
-}
-
-export function showHelp() {
-  new TokenInfo().showHelp();
 }
 
 export function showHelpByName(itemName: string) {

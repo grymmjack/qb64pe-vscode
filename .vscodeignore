@@ -1,7 +1,30 @@
-.vscode
-node_modules
-src/
+# Only runtime assets go into the .vsix: out/main.js (esbuild bundle), help/, images/,
+# syntaxes/, snippets/, language-configuration.json, package.json, README, changelog, LICENSE.
+.vscode/**
+.vscode-test/**
+.claude/**
+.github/**
+src/**
+test/**
+docs/**
+out/**
+!out/main.js
+node_modules/**
+**/*.ts
+**/*.map
 tsconfig.json
+.gitignore
+.vscodeignore
+*.vsix
+test_*
+test-*
+mathutils.bi
+releases/**
+db/**
 webpack.config.js
-releases
-db/
+CLAUDE.md
+COMPLETION_PROVIDERS.md
+ENHANCED_COMPLETION_GUIDE.md
+IMPLEMENTATION_SUMMARY.md
+syntaxes/*.bak.json
+syntaxes/*-beforetime

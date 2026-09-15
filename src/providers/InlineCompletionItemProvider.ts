@@ -5,7 +5,9 @@ import * as path from "path";
 import * as commonFunctions from "../commonFunctions";
 import * as logFunctions from "../logFunctions";
 import { TokenInfo } from "../TokenInfo";
-import { SymbolParser, QB64Symbol } from "./SymbolParser";
+import { QB64Symbol } from "../core/symbols";
+import { WorkspaceSymbolIndex } from "./WorkspaceSymbolIndex";
+import { symbolsInScope } from "../core/queries";
 
 export class InlineCompletionItemProvider
   implements vscode.InlineCompletionItemProvider
@@ -14,10 +16,10 @@ export class InlineCompletionItemProvider
     logFunctions.channelType.inlineCompletion
   );
   private codePatterns: Map<string, string[]> = new Map();
-  private symbolParser: SymbolParser;
+  private readonly workspaceIndex: WorkspaceSymbolIndex;
 
-  constructor(symbolParser?: SymbolParser) {
-    this.symbolParser = symbolParser || new SymbolParser();
+  constructor(workspaceIndex: WorkspaceSymbolIndex) {
+    this.workspaceIndex = workspaceIndex;
     this.initializeCodePatterns();
   }
 
@@ -283,17 +285,11 @@ export class InlineCompletionItemProvider
       const context = this.analyzeContext(document, position);
 
       // Get user symbols for context-aware suggestions
-      const documentSymbols = await this.symbolParser.parseDocumentSymbols(
-        document
-      );
-      const includeSymbols = await this.symbolParser.parseIncludeFiles(
-        document
-      );
-      const allUserSymbols = [...documentSymbols, ...includeSymbols];
-      const scopedSymbols = this.symbolParser.getSymbolsInScope(
-        document,
-        position,
-        allUserSymbols
+      this.workspaceIndex.ensureDocument(document);
+      const scopedSymbols = symbolsInScope(
+        this.workspaceIndex.index,
+        this.workspaceIndex.keyOf(document),
+        position.line
       );
 
       // Add context-aware patterns based on available symbols

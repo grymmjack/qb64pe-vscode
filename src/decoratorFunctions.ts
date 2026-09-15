@@ -2,7 +2,7 @@
 import * as vscode from "vscode";
 import * as logFunctions from "./logFunctions";
 import * as commonFunctions from "./commonFunctions";
-import { symbolCache } from "./extension";
+import { WorkspaceSymbolIndex } from "./providers/WorkspaceSymbolIndex";
 import { syncBuiltinESMExports } from "module";
 
 //const decorationTypeTodo: vscode.TextEditorDecorationType = vscode.window.createTextEditorDecorationType({ backgroundColor: 'green', color: 'rgb(0,0,0)' });
@@ -16,21 +16,47 @@ const decorationTypeCurrentRow: vscode.TextEditorDecorationType = vscode.window.
 );
 
 let lastLine: vscode.Position;
-export function setupDecorate() {
-	symbolCache.length = 0;
+let workspaceIndex: WorkspaceSymbolIndex | null = null;
+/** Refreshed by scanFile; read by decorate() for every line. */
+let routineNames: Set<string> = new Set();
 
-	// Needed for the first opening VsCode
-	vscode.commands.executeCommand<vscode.DocumentSymbol[]>('vscode.executeDocumentSymbolProvider', vscode.window.activeTextEditor.document.uri)
-		.then(() => {
-			scanFile(vscode.window.activeTextEditor, true);
-			vscode.window.onDidChangeTextEditorSelection(() => { scanFile(vscode.window.activeTextEditor, false); });
+/**
+ * Lower-cased names to render bold: every SUB/FUNCTION of the document's
+ * compilation unit plus the labels of the document itself.
+ */
+function knownRoutineNames(editor: any): Set<string> {
+	const names = new Set<string>();
+	try {
+		if (!workspaceIndex || !editor || !editor.document) return names;
+		workspaceIndex.ensureDocument(editor.document);
+		const index = workspaceIndex.index;
+		const key = workspaceIndex.keyOf(editor.document);
+		for (const file of index.unitOf(key)) {
+			for (const symbol of index.symbolsOf(file)) {
+				if (symbol.type === "SUB" || symbol.type === "FUNCTION") names.add(symbol.name.toLowerCase());
+			}
+		}
+		for (const symbol of index.symbolsOf(key)) {
+			if (symbol.type === "LABEL") names.add(symbol.name.toLowerCase());
+		}
+	} catch {
+		// decorations are cosmetic; never let them throw
+	}
+	return names;
+}
 
-			vscode.window.onDidChangeActiveTextEditor((editor): void => {
-				if (editor) {
-					vscode.commands.executeCommand<vscode.DocumentSymbol[]>('vscode.executeDocumentSymbolProvider', editor.document.uri).then(() => { scanFile(editor, true); });
-				}
-			});
-		});
+export function setupDecorate(sharedIndex?: WorkspaceSymbolIndex) {
+	workspaceIndex = sharedIndex ?? null;
+
+	// There may be no editor yet (e.g. activation from a workspace scan).
+	const editor = vscode.window.activeTextEditor;
+	if (editor) scanFile(editor, true);
+	vscode.window.onDidChangeTextEditorSelection(() => {
+		if (vscode.window.activeTextEditor) scanFile(vscode.window.activeTextEditor, false);
+	});
+	vscode.window.onDidChangeActiveTextEditor((active) => {
+		if (active) scanFile(active, true);
+	});
 }
 
 function getMetaCommandDecoration(scopeName: string): vscode.TextEditorDecorationType {
@@ -89,6 +115,7 @@ function getSubDecoration(): vscode.TextEditorDecorationType {
  * @returns 
  */
 export function scanFile(editor: any, scanAllLines: boolean) {
+	routineNames = knownRoutineNames(editor);
 
 	if (!editor || editor.document.uri.scheme.toLowerCase() === 'output' || editor.document.languageId.toLowerCase() === "log" || editor.document.languageId.toLowerCase() === "jsonc" || editor.document.fileName.toLowerCase().indexOf("QB64PE: ") > 0) {
 		return;
@@ -271,19 +298,15 @@ function decorate(editor: any, lineNumber: number, outputChannel: any, includeLe
 		}
 
 
-		if (symbolCache && symbolCache.length > 0) {
+		if (routineNames.size > 0) {
 			const tokens: string[] = Array.from(new Set(lineOfCode.replace(/'.*$/, '').trimEnd().split(/[\s(]+/).filter(token => token.trim() !== '')));
 			for (let tokenIndex = 0; tokenIndex < tokens.length; tokenIndex++) {
-				const sub = symbolCache.find((s) => s.name && s.name === tokens[tokenIndex].trim().toLowerCase().replace(/(call|gosub|goto|:)$/i, ""));
+				const name = tokens[tokenIndex].trim().toLowerCase().replace(/:$/, "");
+				const sub = routineNames.has(name) ? { name } : null;
 				if (sub) {
-					// TypeScript regex sucks.
 					// Remove the comments from the line and parse that.
 					const codeWithoutComments = lineOfCode.replace(/'.*$/, '').trimEnd();
-					let subName = commonFunctions.escapeRegExp(sub.name)
-
-					if (subName.endsWith(":")) {
-						subName = subName.slice(0, -1);
-					}
+					const subName = commonFunctions.escapeRegExp(sub.name);
 					const matches = codeWithoutComments.matchAll(new RegExp(`\\b(?:call\\s*|gosub\\s*|goto\\s*|declare sub\\s*|sub\\s*|declare function\\s*|function\\s*)?(${subName})\\b|\\b(${subName}):`, 'gi'));
 
 					for (let match of matches) {

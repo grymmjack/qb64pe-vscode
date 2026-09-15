@@ -1,0 +1,7 @@
+{
+  // The integration tests open this folder as the workspace; keep the
+  // extension's convenience features from writing files into the fixtures.
+  "qb64pe.isCreateGitIgnoreEnabled": false,
+  "qb64pe.isCreateBakFileEnabled": false,
+  "qb64pe.isLintOnSaveEnabled": false
+}

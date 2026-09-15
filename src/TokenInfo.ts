@@ -128,6 +128,7 @@ export class TokenInfo {
     // Try various keyword variations
     const variations = [
       keyword,
+      keyword.replace(/~?(?:%%|&&|##|[%&!#`])$/, ""), // without a numeric type sigil (count% -> count)
       keyword.substring(1), // without leading underscore
       `${keyword}$`,
       `$${keyword}`,

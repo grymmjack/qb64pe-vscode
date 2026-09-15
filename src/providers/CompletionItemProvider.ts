@@ -5,7 +5,11 @@ import * as path from "path";
 import * as commonFunctions from "../commonFunctions";
 import * as logFunctions from "../logFunctions";
 import { TokenInfo } from "../TokenInfo";
-import { SymbolParser, QB64Symbol } from "./SymbolParser";
+import { QB64Symbol } from "../core/symbols";
+import { WorkspaceSymbolIndex } from "./WorkspaceSymbolIndex";
+import { memberContextAt, symbolsInScope } from "../core/queries";
+import { kindLabel, signatureLabel, symbolMarkdown } from "../core/format";
+import { KEYWORDS } from "../core/keywords";
 
 export class CompletionItemProvider implements vscode.CompletionItemProvider {
   private outputChannel = logFunctions.getChannel(
@@ -15,838 +19,19 @@ export class CompletionItemProvider implements vscode.CompletionItemProvider {
   private keywordCompletions: vscode.CompletionItem[] = [];
   private functionCompletions: vscode.CompletionItem[] = [];
   private statementCompletions: vscode.CompletionItem[] = [];
-  private symbolParser: SymbolParser;
-  private workspaceSymbols: QB64Symbol[] = [];
+  private readonly workspaceIndex: WorkspaceSymbolIndex;
+  /** Items created from index symbols, for lazy documentation. */
+  private readonly symbolOf = new WeakMap<vscode.CompletionItem, QB64Symbol>();
 
-  constructor(symbolParser?: SymbolParser) {
-    this.symbolParser = symbolParser || new SymbolParser();
+  constructor(workspaceIndex: WorkspaceSymbolIndex) {
+    this.workspaceIndex = workspaceIndex;
     this.initializeKeywords();
     this.buildCompletionItems();
-    this.refreshWorkspaceSymbols();
-
-    // Watch for file changes to update symbols
-    vscode.workspace.onDidSaveTextDocument(() =>
-      this.refreshWorkspaceSymbols()
-    );
-    vscode.workspace.onDidCreateFiles(() => this.refreshWorkspaceSymbols());
-    vscode.workspace.onDidDeleteFiles(() => this.refreshWorkspaceSymbols());
   }
 
   private initializeKeywords() {
     // Extract keywords from syntax highlighting - these are the QB64PE keywords
-    this.keywords = [
-      // Core QB64PE statements and functions with comprehensive underscore functions
-      "ABS",
-      "ABSOLUTE",
-      "ACCEPTFILEDROP",
-      "ACCESS",
-      "ACOS",
-      "ACOSH",
-      "ADLER32",
-      "ALIAS",
-      "ALL",
-      "ALLOWFULLSCREEN",
-      "ALPHA",
-      "ALPHA32",
-      "AND",
-      "ANDALSO",
-      "ANY",
-      "APPEND",
-      "AS",
-      "ASC",
-      "ASIN",
-      "ASINH",
-      "ASSERT",
-      "ATAN2",
-      "ATANH",
-      "ATN",
-      "AUTODISPLAY",
-      "AXIS",
-
-      // Background and Color Functions
-      "BACKGROUNDCOLOR",
-      "BASE",
-      "BEEP",
-      "BIN$",
-      "BINARY",
-      "BIT",
-      "BLEND",
-      "BLINK",
-      "BLOAD",
-      "BLUE",
-      "BLUE32",
-      "BSAVE",
-      "BUTTON",
-      "BUTTONCHANGE",
-      "BYTE",
-      "BYVAL",
-      "CALL",
-
-      // Input and System Functions
-      "CAPSLOCK",
-      "CASE",
-      "CDBL",
-      "CEIL",
-      "CHAIN",
-      "CHDIR",
-      "CHR$",
-      "CINP",
-      "CINT",
-      "CIRCLE",
-      "CLEAR",
-      "CLEARCOLOR",
-      "CLIP",
-      "CLIPBOARD$",
-      "CLIPBOARDIMAGE",
-      "CLNG",
-      "CLOSE",
-      "CLS",
-      "COLOR",
-      "COLORCHOOSERDIALOG",
-      "COM",
-      "COMMAND$",
-      "COMMANDCOUNT",
-      "COMMON",
-      "CONNECTED",
-      "CONNECTIONADDRESS",
-      "CONNECTIONADDRESS$",
-      "CONSOLE",
-      "CONSOLECURSOR",
-      "CONSOLEFONT",
-      "CONSOLEINPUT",
-      "CONSOLETITLE",
-      "CONST",
-      "CONTINUE",
-      "CONTROLCHR",
-      "COPYIMAGE",
-      "COPYPALETTE",
-
-      // Math and Trigonometric Functions
-      "COS",
-      "COSH",
-      "COT",
-      "COTH",
-      "CRC32",
-      "CSC",
-      "CSCH",
-      "CSNG",
-      "CSRLIN",
-      "CUSTOMTYPE",
-      "CV",
-      "CVD",
-      "CVDMBF",
-      "CVI",
-      "CVL",
-      "CVS",
-      "CVSMBF",
-      "CWD$",
-      "D2G",
-      "D2R",
-      "DATA",
-      "DATE$",
-      "DECLARE",
-      "DEF",
-      "DEFAULTCOLOR",
-      "DEFDBL",
-      "DEFINE",
-      "DEFINT",
-      "DEFLATE$",
-      "DEFLNG",
-      "DEFSNG",
-      "DEFSTR",
-
-      // Display and Graphics Functions
-      "DELAY",
-      "DEPTHBUFFER",
-      "DESKTOPHEIGHT",
-      "DESKTOPWIDTH",
-      "DEST",
-      "DEVICE$",
-      "DEVICEINPUT",
-      "DEVICES",
-      "DIM",
-      "DIR$",
-      "DIREXISTS",
-      "DISPLAY",
-      "DISPLAYORDER",
-      "DO",
-      "DONTBLEND",
-      "DONTWAIT",
-      "DOUBLE",
-      "DRAW",
-      "DROPPEDFILE",
-      "DROPPEDFILE$",
-      "DYNAMIC",
-      "ECHO",
-      "ELSE",
-      "ELSEIF",
-      "EMBEDDED$",
-      "END",
-      "ENVIRON",
-      "ENVIRON$",
-      "ENVIRONCOUNT",
-      "EOF",
-      "EQV",
-      "ERASE",
-      "ERDEV",
-      "ERDEV$",
-      "ERL",
-      "ERR",
-      "ERROR",
-      "ERRORLINE",
-      "ERRORMESSAGE$",
-      "EVERYCASE",
-      "EXIT",
-      "EXP",
-      "EXPLICIT",
-      "EXPLICITARRAY",
-
-      // File I/O Functions
-      "FIELD",
-      "FILEATTR",
-      "FILEEXISTS",
-      "FILES",
-      "FILES$",
-      "FILLBACKGROUND",
-      "FINISHDROP",
-      "FIX",
-      "FLOAT",
-      "FOR",
-
-      // Font and Text Functions
-      "FPS",
-      "FRE",
-      "FREE",
-      "FREEFILE",
-      "FREEFONT",
-      "FREEIMAGE",
-      "FREETIMER",
-      "FULLPATH$",
-      "FULLSCREEN",
-      "FUNCTION",
-
-      // Graphics and Image Functions
-      "G2D",
-      "G2R",
-      "GET",
-      "GOSUB",
-      "GOTO",
-      "GREEN",
-      "GREEN32",
-      "HARDWARE",
-      "HARDWARE1",
-      "HEIGHT",
-      "HEX$",
-      "HIDE",
-      "HYPOT",
-      "ICON",
-      "IF",
-      "IMP",
-      "INCLERRORFILE$",
-      "INCLERRORLINE",
-      "INFLATE$",
-      "INKEY$",
-      "INP",
-      "INPUT",
-      "INPUT$",
-      "INPUTBOX$",
-      "INSTR",
-      "INSTRREV",
-      "INT",
-      "INTEGER",
-      "INTEGER64",
-      "INTERRUPT",
-      "INTERRUPTX",
-      "IOCTL",
-      "IOCTL$",
-      "IS",
-      "KEEPBACKGROUND",
-
-      // Keyboard and Input Functions
-      "KEY",
-      "KEYCLEAR",
-      "KEYDOWN",
-      "KEYHIT",
-      "KILL",
-      "LASTAXIS",
-      "LASTBUTTON",
-      "LASTWHEEL",
-      "LBOUND",
-      "LCASE$",
-      "LEFT$",
-      "LEN",
-      "LET",
-      "LIBRARY",
-      "LIMIT",
-      "LINE",
-      "LIST",
-      "LOADFONT",
-      "LOADIMAGE",
-      "LOC",
-      "LOCATE",
-      "LOCK",
-      "LOF",
-      "LOG",
-      "LONG",
-      "LOOP",
-      "LPOS",
-      "LPRINT",
-      "LSET",
-      "LTRIM$",
-
-      // Advanced Graphics Functions
-      "MAPTRIANGLE",
-      "MAPUNICODE",
-      "MD5$",
-      "MEM",
-      "MEMCOPY",
-      "MEMELEMENT",
-      "MEMEXISTS",
-      "MEMFILL",
-      "MEMFREE",
-      "MEMGET",
-      "MEMIMAGE",
-      "MEMNEW",
-      "MEMPUT",
-      "MEMSOUND",
-      "MESSAGEBOX",
-      "MID$",
-      "MIDDLE",
-      "MK$",
-      "MKD$",
-      "MKDIR",
-      "MKDMBF$",
-      "MKI$",
-      "MKL$",
-      "MKS$",
-      "MKSMBF$",
-      "MOD",
-
-      // Mouse Functions
-      "MOUSEBUTTON",
-      "MOUSEHIDE",
-      "MOUSEINPUT",
-      "MOUSEMOVE",
-      "MOUSEMOVEMENTX",
-      "MOUSEMOVEMENTY",
-      "MOUSEPIPEOPEN",
-      "MOUSESHOW",
-      "MOUSEWHEEL",
-      "MOUSEX",
-      "MOUSEY",
-
-      // Network and System Functions
-      "NAME",
-      "NEGATE",
-      "NEWIMAGE",
-      "NEXT",
-      "NONE",
-      "NOT",
-      "NOTIFYPOPUP",
-      "NUMLOCK",
-      "OCT$",
-      "OFF",
-      "OFFSET",
-      "ON",
-      "ONLY",
-      "ONLYBACKGROUND",
-      "ONTOP",
-      "OPEN",
-      "OPENCLIENT",
-      "OPENCONNECTION",
-      "OPENFILEDIALOG$",
-      "OPENHOST",
-      "OPTION",
-      "OR",
-      "ORELSE",
-      "OS$",
-      "OUT",
-      "OUTPUT",
-
-      // Drawing and Palette Functions
-      "PAINT",
-      "PALETTE",
-      "PALETTECOLOR",
-      "PCOPY",
-      "PEEK",
-      "PEN",
-      "PI",
-      "PIXELSIZE",
-      "PLAY",
-      "PMAP",
-      "POINT",
-      "POKE",
-      "POS",
-      "PRESERVE",
-      "PRESET",
-      "PRINT",
-      "PRINTIMAGE",
-      "PRINTMODE",
-      "PRINTSTRING",
-      "PRINTWIDTH",
-      "PSET",
-      "PUT",
-      "PUTIMAGE",
-
-      // Conversion and Math Functions
-      "R2D",
-      "R2G",
-      "RANDOM",
-      "RANDOMIZE",
-      "READ",
-      "READBIT",
-      "READFILE$",
-      "RED",
-      "RED32",
-      "REDIM",
-      "RESET",
-      "RESETBIT",
-      "RESIZE",
-      "RESIZEHEIGHT",
-      "RESIZEWIDTH",
-      "RESTORE",
-      "RESUME",
-      "RETURN",
-      "RGB",
-      "RGB32",
-      "RGBA",
-      "RGBA32",
-      "RIGHT$",
-      "RMDIR",
-      "RND",
-      "ROL",
-      "ROR",
-      "ROUND",
-      "RSET",
-      "RTRIM$",
-      "RUN",
-
-      // File Dialog and Save Functions
-      "SADD",
-      "SAVEFILEDIALOG$",
-      "SAVEIMAGE",
-      "SCALEDHEIGHT",
-      "SCALEDWIDTH",
-      "SCREEN",
-      "SCREENCLICK",
-      "SCREENEXISTS",
-      "SCREENHIDE",
-      "SCREENICON",
-      "SCREENIMAGE",
-      "SCREENMOVE",
-      "SCREENPRINT",
-      "SCREENSHOW",
-      "SCREENX",
-      "SCREENY",
-      "SCROLLLOCK",
-      "SEAMLESS",
-      "SEC",
-      "SECH",
-      "SEEK",
-      "SEG",
-      "SELECT",
-      "SELECTFOLDERDIALOG$",
-      "SETALPHA",
-      "SETBIT",
-      "SETMEM",
-      "SGN",
-      "SHARED",
-      "SHELL",
-      "SHELLHIDE",
-      "SHL",
-      "SHR",
-      "SIGNAL",
-      "SIN",
-      "SINGLE",
-      "SINH",
-      "SLEEP",
-      "SMOOTH",
-      "SMOOTHSHRUNK",
-      "SMOOTHSTRETCHED",
-
-      // Sound Functions
-      "SNDBAL",
-      "SNDCLOSE",
-      "SNDCOPY",
-      "SNDGETPOS",
-      "SNDLEN",
-      "SNDLIMIT",
-      "SNDLOOP",
-      "SNDNEW",
-      "SNDOPEN",
-      "SNDOPENRAW",
-      "SNDPAUSE",
-      "SNDPAUSED",
-      "SNDPLAY",
-      "SNDPLAYCOPY",
-      "SNDPLAYFILE",
-      "SNDPLAYING",
-      "SNDRATE",
-      "SNDRAW",
-      "SNDRAWDONE",
-      "SNDRAWLEN",
-      "SNDSETPOS",
-      "SNDSTOP",
-      "SNDVOL",
-      "SOFTWARE",
-      "SOUND",
-      "SOURCE",
-      "SPACE$",
-      "SPC",
-      "SQR",
-      "SQUAREPIXELS",
-      "STARTDIR$",
-      "STATIC",
-      "STATUSCODE",
-      "STEP",
-      "STICK",
-      "STOP",
-      "STR$",
-      "STRCMP",
-      "STRETCH",
-      "STRICMP",
-      "STRIG",
-      "STRING",
-      "STRING$",
-      "SUB",
-      "SWAP",
-      "SYSTEM",
-
-      // Text and String Functions
-      "TAB",
-      "TAN",
-      "TANH",
-      "THEN",
-      "TIME$",
-      "TIMER",
-      "TITLE",
-      "TITLE$",
-      "TO",
-      "TOGGLE",
-      "TOGGLEBIT",
-      "TOTALDROPPEDFILES",
-      "TRIM$",
-      "TROFF",
-      "TRON",
-      "TYPE",
-      "UBOUND",
-      "UCASE$",
-      "UCHARPOS",
-      "UEVENT",
-      "UFONTHEIGHT",
-      "ULINESPACING",
-      "UNLOCK",
-      "UNSIGNED",
-      "UNTIL",
-      "UPRINTSTRING",
-      "UPRINTWIDTH",
-      "USING",
-      "VAL",
-      "VARPTR",
-      "VARPTR$",
-      "VARSEG",
-      "VIEW",
-      "WAIT",
-      "WEND",
-      "WHEEL",
-      "WHILE",
-      "WIDTH",
-      "WINDOW",
-      "WINDOWHANDLE",
-      "WINDOWHASFOCUS",
-      "WRITE",
-      "WRITEFILE",
-      "XOR",
-
-      // Underscore-prefixed QB64PE functions from wiki repository
-      "_ACCEPTFILEDROP",
-      "_ADLER32",
-      "_ALLOWFULLSCREEN",
-      "_ALPHA",
-      "_ALPHA32",
-      "_ANDALSO",
-      "_ANTICLOCKWISE",
-      "_ASSERT",
-      "_AUTODISPLAY",
-      "_AXIS",
-      "_BACKGROUNDCOLOR",
-      "_BEHIND",
-      "_BIN$",
-      "_BIT",
-      "_BLEND",
-      "_BLINK",
-      "_BLUE",
-      "_BLUE32",
-      "_BUTTON",
-      "_BUTTONCHANGE",
-      "_BYTE",
-      "_CAPSLOCK",
-      "_CEIL",
-      "_CLEARCOLOR",
-      "_CLIP",
-      "_CLIPBOARD$",
-      "_CLIPBOARDIMAGE",
-      "_CLOCKWISE",
-      "_COLORCHOOSERDIALOG$",
-      "_COMMANDCOUNT",
-      "_CONNECTED",
-      "_CONNECTIONADDRESS",
-      "_CONNECTIONADDRESS$",
-      "_CONSOLE",
-      "_CONSOLECURSOR",
-      "_CONSOLEFONT",
-      "_CONSOLEINPUT",
-      "_CONSOLETITLE",
-      "_CONTINUE",
-      "_CONTROLCHR",
-      "_COPYIMAGE",
-      "_COPYPALETTE",
-      "_CRC32",
-      "_CWD$",
-      "_CV",
-      "_D2G",
-      "_D2R",
-      "_DEFAULTCOLOR",
-      "_DEFLATE$",
-      "_DELAY",
-      "_DEPTHBUFFER",
-      "_DESKTOPHEIGHT",
-      "_DESKTOPWIDTH",
-      "_DEST",
-      "_DEVICE$",
-      "_DEVICEINPUT",
-      "_DEVICES",
-      "_DIR$",
-      "_DIREXISTS",
-      "_DISPLAY",
-      "_DISPLAYORDER",
-      "_DONTBLEND",
-      "_DONTWAIT",
-      "_DROPPEDFILE",
-      "_DROPPEDFILE$",
-      "_ECHO",
-      "_EMBEDDED$",
-      "_ENVIRON$",
-      "_ENVIRONCOUNT",
-      "_ERRORLINE",
-      "_ERRORMESSAGE$",
-      "_EXPLICIT",
-      "_EXPLICITARRAY",
-      "_FILEEXISTS",
-      "_FILES$",
-      "_FILLBACKGROUND",
-      "_FINISHDROP",
-      "_FONT",
-      "_FONTHEIGHT",
-      "_FONTWIDTH",
-      "_FPS",
-      "_FREE",
-      "_FREEFILE",
-      "_FREEFONT",
-      "_FREEIMAGE",
-      "_FREETIMER",
-      "_FULLPATH$",
-      "_FULLSCREEN",
-      "_G2D",
-      "_G2R",
-      "_GREEN",
-      "_GREEN32",
-      "_HARDWARE",
-      "_HARDWARE1",
-      "_HEIGHT",
-      "_HIDE",
-      "_HYPOT",
-      "_ICON",
-      "_INCLERRORFILE$",
-      "_INCLERRORLINE",
-      "_INFLATE$",
-      "_INPUTBOX$",
-      "_INSTRREV",
-      "_INTEGER64",
-      "_KEEPBACKGROUND",
-      "_KEYCLEAR",
-      "_KEYDOWN",
-      "_KEYHIT",
-      "_LASTAXIS",
-      "_LASTBUTTON",
-      "_LASTWHEEL",
-      "_LIMIT",
-      "_LOADFONT",
-      "_LOADIMAGE",
-      "_MAPUNICODE",
-      "_MD5$",
-      "_MEM",
-      "_MEMCOPY",
-      "_MEMELEMENT",
-      "_MEMEXISTS",
-      "_MEMFILL",
-      "_MEMFREE",
-      "_MEMGET",
-      "_MEMIMAGE",
-      "_MEMNEW",
-      "_MEMPUT",
-      "_MEMSOUND",
-      "_MESSAGEBOX",
-      "_MIDDLE",
-      "_MOUSEBUTTON",
-      "_MOUSEHIDE",
-      "_MOUSEINPUT",
-      "_MOUSEMOVE",
-      "_MOUSEMOVEMENTX",
-      "_MOUSEMOVEMENTY",
-      "_MOUSEPIPEOPEN",
-      "_MOUSESHOW",
-      "_MOUSEWHEEL",
-      "_MOUSEX",
-      "_MOUSEY",
-      "_NEGATE",
-      "_NEWIMAGE",
-      "_NONE",
-      "_NOTIFYPOPUP",
-      "_NUMLOCK",
-      "_OFFSET",
-      "_ONLY",
-      "_ONLYBACKGROUND",
-      "_ONTOP",
-      "_OPENCLIENT",
-      "_OPENCONNECTION",
-      "_OPENFILEDIALOG$",
-      "_OPENHOST",
-      "_ORELSE",
-      "_OS$",
-      "_PALETTECOLOR",
-      "_PI",
-      "_PIXELSIZE",
-      "_PRINTIMAGE",
-      "_PRINTMODE",
-      "_PRINTSTRING",
-      "_PRINTWIDTH",
-      "_PUTIMAGE",
-      "_R2D",
-      "_R2G",
-      "_READBIT",
-      "_READFILE$",
-      "_RED",
-      "_RED32",
-      "_RESETBIT",
-      "_RESIZE",
-      "_RESIZEHEIGHT",
-      "_RESIZEWIDTH",
-      "_RGB",
-      "_RGB32",
-      "_RGBA",
-      "_RGBA32",
-      "_ROL",
-      "_ROR",
-      "_ROUND",
-      "_SAVEFILEDIALOG$",
-      "_SAVEIMAGE",
-      "_SCALEDHEIGHT",
-      "_SCALEDWIDTH",
-      "_SCREEN",
-      "_SCREENCLICK",
-      "_SCREENEXISTS",
-      "_SCREENHIDE",
-      "_SCREENICON",
-      "_SCREENIMAGE",
-      "_SCREENMOVE",
-      "_SCREENPRINT",
-      "_SCREENSHOW",
-      "_SCREENX",
-      "_SCREENY",
-      "_SCROLLLOCK",
-      "_SEC",
-      "_SECH",
-      "_SELECTFOLDERDIALOG$",
-      "_SETALPHA",
-      "_SETBIT",
-      "_SETMEM",
-      "_SHELLHIDE",
-      "_SHL",
-      "_SHR",
-      "_SIGNAL",
-      "_SINH",
-      "_SMOOTH",
-      "_SMOOTHSHRUNK",
-      "_SMOOTHSTRETCHED",
-      "_SNDBAL",
-      "_SNDCLOSE",
-      "_SNDCOPY",
-      "_SNDGETPOS",
-      "_SNDLEN",
-      "_SNDLIMIT",
-      "_SNDLOOP",
-      "_SNDNEW",
-      "_SNDOPEN",
-      "_SNDOPENRAW",
-      "_SNDPAUSE",
-      "_SNDPAUSED",
-      "_SNDPLAY",
-      "_SNDPLAYCOPY",
-      "_SNDPLAYFILE",
-      "_SNDPLAYING",
-      "_SNDRATE",
-      "_SNDRAW",
-      "_SNDRAWDONE",
-      "_SNDRAWLEN",
-      "_SNDSETPOS",
-      "_SNDSTOP",
-      "_SNDVOL",
-      "_SOFTWARE",
-      "_SOURCE",
-      "_SQUAREPIXELS",
-      "_STARTDIR$",
-      "_STATUSCODE",
-      "_STRCMP",
-      "_STRETCH",
-      "_STRICMP",
-      "_TITLE",
-      "_TITLE$",
-      "_TOGGLE",
-      "_TOGGLEBIT",
-      "_TOTALDROPPEDFILES",
-      "_TRIM$",
-      "_UCASE$",
-      "_UCHARPOS",
-      "_UEVENT",
-      "_UFONTHEIGHT",
-      "_ULINESPACING",
-      "_UNSIGNED",
-      "_UPRINTSTRING",
-      "_UPRINTWIDTH",
-      "_WHEEL",
-      "_WIDTH",
-      "_WINDOWHANDLE",
-      "_WINDOWHASFOCUS",
-      "_WRITEFILE",
-
-      // Metacommands
-      "$ASSERTS",
-      "$CHECKING",
-      "$COLOR",
-      "$CONSOLE",
-      "$DEBUG",
-      "$DYNAMIC",
-      "$ELSE",
-      "$ELSEIF",
-      "$EMBED",
-      "$END",
-      "$ERROR",
-      "$EXEICON",
-      "$IF",
-      "$INCLUDE",
-      "$INCLUDEONCE",
-      "$LET",
-      "$MIDISOUNDFONT",
-      "$NOPREFIX",
-      "$RESIZE",
-      "$SCREENHIDE",
-      "$SCREENSHOW",
-      "$STATIC",
-      "$UNSTABLE",
-      "$VERSIONINFO",
-      "$VIRTUALKEYBOARD",
-    ];
+    this.keywords = [...KEYWORDS];
   }
 
   private buildCompletionItems() {
@@ -857,6 +42,7 @@ export class CompletionItemProvider implements vscode.CompletionItemProvider {
         keyword,
         vscode.CompletionItemKind.Keyword
       );
+      item.sortText = "5_" + keyword; // after user symbols (0_..2_)
 
       // Set the formatted version based on user preferences
       const tokenInfo = new TokenInfo(keyword, "", this.outputChannel);
@@ -866,8 +52,7 @@ export class CompletionItemProvider implements vscode.CompletionItemProvider {
         item.insertText = this.formatKeyword(keyword, config);
       }
 
-      // Add documentation from help files
-      item.documentation = this.getKeywordDocumentation(keyword);
+      // Documentation comes from the help files lazily, in resolveCompletionItem.
 
       // Categorize based on keyword type
       if (this.isFunctionKeyword(keyword)) {
@@ -1157,6 +342,7 @@ export class CompletionItemProvider implements vscode.CompletionItemProvider {
         snippet.label,
         vscode.CompletionItemKind.Snippet
       );
+      item.sortText = "6_" + snippet.label; // below keywords
       item.insertText = snippet.insertText;
       item.documentation = new vscode.MarkdownString(snippet.documentation);
       this.keywordCompletions.push(item);
@@ -1170,80 +356,36 @@ export class CompletionItemProvider implements vscode.CompletionItemProvider {
     context: vscode.CompletionContext
   ): Promise<vscode.CompletionItem[] | vscode.CompletionList> {
     try {
-      // Get the current line and word being typed
-      const lineText = document.lineAt(position).text;
-      const wordRange = document.getWordRangeAtPosition(position);
-      const word = wordRange ? document.getText(wordRange) : "";
+      this.workspaceIndex.ensureDocument(document);
+      const key = this.workspaceIndex.keyOf(document);
 
-      logFunctions.writeLine(
-        `Completion requested at position ${position.line}:${position.character}, word: "${word}"`,
-        this.outputChannel
-      );
-
-      // Filter completions based on context
-      let completions: vscode.CompletionItem[] = [];
-
-      // Add all keyword completions
-      completions = completions.concat(this.keywordCompletions);
-      completions = completions.concat(this.functionCompletions);
-      completions = completions.concat(this.statementCompletions);
-
-      // Add user-defined symbols
-      const userSymbols = await this.getUserDefinedCompletions(
-        document,
-        position,
-        word
-      );
-      completions = completions.concat(userSymbols);
-
-      // Add local variables and user-defined functions/subs (legacy method for compatibility)
-      const localCompletions = this.getLocalCompletions(document);
-      completions = completions.concat(localCompletions);
-
-      // Filter based on current input
-      if (word.length > 0) {
-        completions = completions.filter((item) =>
-          item.label.toString().toLowerCase().startsWith(word.toLowerCase())
-        );
+      // `owner.` / `owner.pre|` completes with the owner's TYPE fields only.
+      const member = memberContextAt(this.workspaceIndex.index, key, position);
+      if (member) {
+        const prefix = member.prefix.toLowerCase();
+        return member.members
+          .filter((f) => f.name.toLowerCase().startsWith(prefix))
+          .map((f, i) => {
+            const item = this.createCompletionFromSymbol(f, document)!;
+            item.sortText = String(i).padStart(3, "0"); // declaration order
+            return item;
+          });
       }
 
-      // Remove duplicates (prefer user symbols over built-in)
-      completions = this.removeDuplicateCompletions(completions);
-
-      // Sort by relevance (keyword type and alphabetically)
-      completions.sort((a, b) => {
-        // Prioritize exact matches
-        const aExact = a.label.toString().toLowerCase() === word.toLowerCase();
-        const bExact = b.label.toString().toLowerCase() === word.toLowerCase();
-        if (aExact && !bExact) return -1;
-        if (!aExact && bExact) return 1;
-
-        // Then by kind priority (User-defined > Functions > Keywords)
-        const kindPriority = {
-          [vscode.CompletionItemKind.Method]: 1, // SUBs
-          [vscode.CompletionItemKind.Function]: 2, // FUNCTIONs
-          [vscode.CompletionItemKind.Variable]: 3, // Variables
-          [vscode.CompletionItemKind.Struct]: 4, // TYPEs
-          [vscode.CompletionItemKind.Constant]: 5, // CONSTs
-          [vscode.CompletionItemKind.Keyword]: 6, // Built-in keywords
-          [vscode.CompletionItemKind.Snippet]: 7, // Snippets
-        };
-
-        const aPriority = kindPriority[a.kind!] || 8;
-        const bPriority = kindPriority[b.kind!] || 8;
-
-        if (aPriority !== bPriority) return aPriority - bPriority;
-
-        // Finally alphabetically
-        return a.label.toString().localeCompare(b.label.toString());
-      });
-
+      // User symbols first so they win over same-named built-ins when
+      // de-duplicating. The list is complete (isIncomplete = false): VS Code
+      // filters and fuzzy-matches client-side as the user keeps typing.
+      const completions = this.removeDuplicateCompletions([
+        ...this.getUserDefinedCompletions(document, position),
+        ...this.keywordCompletions,
+        ...this.functionCompletions,
+        ...this.statementCompletions,
+      ]);
       logFunctions.writeLine(
         `Returning ${completions.length} completions`,
         this.outputChannel
       );
-
-      return completions;
+      return new vscode.CompletionList(completions, false);
     } catch (error) {
       logFunctions.writeLine(
         `Error in provideCompletionItems: ${error}`,
@@ -1253,78 +395,15 @@ export class CompletionItemProvider implements vscode.CompletionItemProvider {
     }
   }
 
-  private getLocalCompletions(
-    document: vscode.TextDocument
-  ): vscode.CompletionItem[] {
-    const completions: vscode.CompletionItem[] = [];
-
-    try {
-      const text = document.getText();
-      const lines = text.split("\n");
-
-      // Find SUBs and FUNCTIONs
-      const subFunctionRegex = /^\s*(SUB|FUNCTION)\s+([a-zA-Z_][a-zA-Z0-9_]*)/i;
-
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        const match = line.match(subFunctionRegex);
-
-        if (match) {
-          const type = match[1].toUpperCase();
-          const name = match[2];
-
-          const item = new vscode.CompletionItem(
-            name,
-            type === "SUB"
-              ? vscode.CompletionItemKind.Method
-              : vscode.CompletionItemKind.Function
-          );
-
-          item.detail = `User-defined ${type.toLowerCase()}`;
-          item.documentation = new vscode.MarkdownString(
-            `${type} defined at line ${i + 1}`
-          );
-
-          completions.push(item);
-        }
-      }
-
-      // Find DIM statements for variables
-      const dimRegex = /^\s*DIM\s+([a-zA-Z_][a-zA-Z0-9_]*)/i;
-
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        const match = line.match(dimRegex);
-
-        if (match) {
-          const name = match[1];
-
-          const item = new vscode.CompletionItem(
-            name,
-            vscode.CompletionItemKind.Variable
-          );
-          item.detail = "User-defined variable";
-          item.documentation = new vscode.MarkdownString(
-            `Variable declared at line ${i + 1}`
-          );
-
-          completions.push(item);
-        }
-      }
-    } catch (error) {
-      logFunctions.writeLine(
-        `Error getting local completions: ${error}`,
-        this.outputChannel
-      );
-    }
-
-    return completions;
-  }
-
   resolveCompletionItem(
     item: vscode.CompletionItem,
     token: vscode.CancellationToken
   ): vscode.ProviderResult<vscode.CompletionItem> {
+    const symbol = this.symbolOf.get(item);
+    if (symbol) {
+      item.documentation = new vscode.MarkdownString(symbolMarkdown(symbol));
+      return item;
+    }
     // Add additional details when the item is selected
     if (
       item.kind === vscode.CompletionItemKind.Keyword ||
@@ -1339,51 +418,22 @@ export class CompletionItemProvider implements vscode.CompletionItemProvider {
     return item;
   }
 
-  private async getUserDefinedCompletions(
+  private getUserDefinedCompletions(
     document: vscode.TextDocument,
-    position: vscode.Position,
-    prefix: string
-  ): Promise<vscode.CompletionItem[]> {
+    position: vscode.Position
+  ): vscode.CompletionItem[] {
     const completions: vscode.CompletionItem[] = [];
-
     try {
-      // Get document symbols (local scope)
-      const documentSymbols = await this.symbolParser.parseDocumentSymbols(
-        document
-      );
-
-      // Get include file symbols
-      const includeSymbols = await this.symbolParser.parseIncludeFiles(
-        document
-      );
-
-      // Get workspace symbols (global scope)
-      const allSymbols = [
-        ...documentSymbols,
-        ...includeSymbols,
-        ...this.workspaceSymbols,
-      ];
-
-      // Get symbols that are in scope at current position
-      const scopedSymbols = this.symbolParser.getSymbolsInScope(
-        document,
-        position,
-        allSymbols
-      );
-
-      // Filter symbols based on prefix
-      const filteredSymbols = scopedSymbols.filter((symbol) =>
-        symbol.name.toLowerCase().startsWith(prefix.toLowerCase())
-      );
-
-      // Remove duplicates (prefer local over global)
-      const uniqueSymbols = this.removeDuplicateSymbols(filteredSymbols);
-
-      for (const symbol of uniqueSymbols) {
+      // Everything visible here (already de-duplicated by name, nearest scope
+      // first): params/locals of the enclosing routine, then this file, its
+      // includes and the rest of the compilation unit.
+      for (const symbol of symbolsInScope(
+        this.workspaceIndex.index,
+        this.workspaceIndex.keyOf(document),
+        position.line
+      )) {
         const completion = this.createCompletionFromSymbol(symbol, document);
-        if (completion) {
-          completions.push(completion);
-        }
+        if (completion) completions.push(completion);
       }
     } catch (error) {
       logFunctions.writeLine(
@@ -1391,7 +441,6 @@ export class CompletionItemProvider implements vscode.CompletionItemProvider {
         this.outputChannel
       );
     }
-
     return completions;
   }
 
@@ -1404,42 +453,26 @@ export class CompletionItemProvider implements vscode.CompletionItemProvider {
     switch (symbol.type) {
       case "SUB":
         completion.kind = vscode.CompletionItemKind.Method;
-        completion.detail = this.formatSubSignature(symbol);
+        completion.detail = signatureLabel(symbol);
         completion.insertText = this.createSubSnippet(symbol);
-        completion.documentation = this.createRichDocumentation(symbol);
         break;
 
       case "FUNCTION":
         completion.kind = vscode.CompletionItemKind.Function;
-        completion.detail = this.formatFunctionSignature(symbol);
+        completion.detail = signatureLabel(symbol);
         completion.insertText = this.createFunctionSnippet(symbol);
-        completion.documentation = this.createRichDocumentation(symbol);
         break;
 
       case "VARIABLE":
         completion.kind = vscode.CompletionItemKind.Variable;
-        completion.detail = `${
-          symbol.dataType || "VARIANT"
-        } (${symbol.scope.toLowerCase()}${symbol.isArray ? ", array" : ""}${
-          symbol.isShared ? ", shared" : ""
+        completion.detail = `${symbol.dataType || "SINGLE"} (${kindLabel(symbol)}${
+          symbol.isArray ? ", array" : ""
         })`;
-        completion.documentation = new vscode.MarkdownString(
-          `**VARIABLE** ${symbol.name}${
-            symbol.dataType ? ` AS ${symbol.dataType}` : ""
-          }${symbol.isArray ? " (array)" : ""}\n\n*Scope: ${
-            symbol.scope
-          }*\n\n*File: ${path.basename(symbol.file)}*`
-        );
         break;
 
       case "TYPE":
         completion.kind = vscode.CompletionItemKind.Struct;
         completion.detail = "User-defined type";
-        completion.documentation = new vscode.MarkdownString(
-          `**TYPE** ${symbol.name}\n\n${
-            symbol.documentation || "User-defined type"
-          }\n\n*File: ${path.basename(symbol.file)}*`
-        );
         break;
 
       case "CONST":
@@ -1447,18 +480,17 @@ export class CompletionItemProvider implements vscode.CompletionItemProvider {
         completion.detail = symbol.value
           ? `CONST ${symbol.name} = ${symbol.value}`
           : "User-defined constant";
-        completion.documentation = new vscode.MarkdownString(
-          `**CONST** ${symbol.name}${
-            symbol.value ? ` = ${symbol.value}` : ""
-          }\n\n${
-            symbol.documentation || "User-defined constant"
-          }\n\n*File: ${path.basename(symbol.file)}*`
-        );
+        break;
+
+      case "FIELD":
+        completion.kind = vscode.CompletionItemKind.Field;
+        completion.detail = `${symbol.dataType ?? ""}${symbol.isArray ? "()" : ""} (field of ${symbol.parent})`.trim();
         break;
 
       default:
         return null;
     }
+    this.symbolOf.set(completion, symbol); // documentation is rendered lazily
 
     // Add scope indicator for sorting
     if (symbol.scope === "LOCAL") {
@@ -1514,25 +546,6 @@ export class CompletionItemProvider implements vscode.CompletionItemProvider {
     return new vscode.SnippetString(`${symbol.name}(${params})`);
   }
 
-  private removeDuplicateSymbols(symbols: QB64Symbol[]): QB64Symbol[] {
-    const symbolMap = new Map<string, QB64Symbol>();
-
-    // Sort by scope priority (LOCAL > MODULE > GLOBAL)
-    const sortedSymbols = symbols.sort((a, b) => {
-      const scopePriority = { LOCAL: 0, MODULE: 1, GLOBAL: 2 };
-      return scopePriority[a.scope] - scopePriority[b.scope];
-    });
-
-    for (const symbol of sortedSymbols) {
-      const key = symbol.name.toLowerCase();
-      if (!symbolMap.has(key)) {
-        symbolMap.set(key, symbol);
-      }
-    }
-
-    return Array.from(symbolMap.values());
-  }
-
   private removeDuplicateCompletions(
     completions: vscode.CompletionItem[]
   ): vscode.CompletionItem[] {
@@ -1547,73 +560,5 @@ export class CompletionItemProvider implements vscode.CompletionItemProvider {
     });
   }
 
-  private async refreshWorkspaceSymbols(): Promise<void> {
-    const workspaceFolders = vscode.workspace.workspaceFolders;
-    if (!workspaceFolders) return;
 
-    this.workspaceSymbols = [];
-    for (const folder of workspaceFolders) {
-      const symbols = await this.symbolParser.parseWorkspaceSymbols(folder);
-      this.workspaceSymbols.push(...symbols);
-    }
-
-    logFunctions.writeLine(
-      `Refreshed workspace symbols: ${this.workspaceSymbols.length} total`,
-      this.outputChannel
-    );
-  }
-
-  private createRichDocumentation(symbol: QB64Symbol): vscode.MarkdownString {
-    const docParts: string[] = [];
-
-    // Add symbol header
-    if (symbol.type === "SUB") {
-      docParts.push(`**SUB** ${symbol.name}`);
-    } else if (symbol.type === "FUNCTION") {
-      docParts.push(
-        `**FUNCTION** ${symbol.name}${
-          symbol.dataType ? ` AS ${symbol.dataType}` : ""
-        }`
-      );
-    } else if (symbol.type === "CONST") {
-      docParts.push(
-        `**CONST** ${symbol.name}${symbol.value ? ` = ${symbol.value}` : ""}`
-      );
-    }
-
-    // Add main documentation
-    if (symbol.documentation) {
-      docParts.push(symbol.documentation);
-    } else {
-      docParts.push(`User-defined ${symbol.type.toLowerCase()}`);
-    }
-
-    // Add parameter information
-    if (symbol.parameters && symbol.parameters.length > 0) {
-      docParts.push("**Parameters:**");
-      for (const param of symbol.parameters) {
-        let paramDoc = `- \`${param.name}\``;
-        if (param.type) {
-          paramDoc += ` (${param.type})`;
-        }
-        if (param.byRef !== undefined) {
-          paramDoc += param.byRef ? " - by reference" : " - by value";
-        }
-        if (param.description) {
-          paramDoc += `: ${param.description}`;
-        }
-        docParts.push(paramDoc);
-      }
-    }
-
-    // Add return type for functions
-    if (symbol.type === "FUNCTION" && symbol.dataType) {
-      docParts.push(`**Returns:** ${symbol.dataType}`);
-    }
-
-    // Add file location
-    docParts.push(`*File: ${path.basename(symbol.file)}*`);
-
-    return new vscode.MarkdownString(docParts.join("\n\n"));
-  }
 }
