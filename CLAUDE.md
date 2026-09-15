@@ -79,7 +79,7 @@ user's *installed* QB64PE wiki source (`<installPath>/internal/help/*.txt`) via 
 and caches it (memory + globalStorage by mtime), falling back to the bundled `help/*.md`
 snapshot (read from the extension's own `help/`, so it works without `helpPath` set). The shared
 hover stylesheet is `media/hover.css`. `TokenInfo.ts` still resolves **built-in keyword** help for
-F1 from the ~1050 offline wiki `.md` files in `help/` (case-insensitive, tries sigil/underscore variants; falls back to the
+F1's keyword-index pages (alphabetical / by-usage), while per-keyword F1 and Ctrl+click now go through `HelpService.openHelp` (live page → bundled → online). `TokenInfo` still reads the ~1050 offline wiki `.md` files in `help/` for keyword formatting (case-insensitive, tries sigil/underscore variants; falls back to the
 online wiki). Syntax highlighting is the TextMate grammar in `syntaxes/`
 (semantic tokens only cover user-defined names, so the two do not fight). `lintFunctions.ts`
 shells out to the compiler and parses its output into diagnostics. `todoFunctions.ts` feeds

@@ -49,10 +49,7 @@ export class HoverProvider implements vscode.HoverProvider {
       if (!token) {
         return null;
       }
-      const help = this.helpService.getHoverHelp(
-        token,
-        document.lineAt(position.line).text
-      );
+      const help = this.helpService.getHoverHelp(token);
       if (help) {
         const markdownString = new vscode.MarkdownString(help.markdown, true);
         markdownString.baseUri = help.baseUri;

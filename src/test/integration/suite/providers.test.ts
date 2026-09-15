@@ -10,6 +10,15 @@ const FIXTURES = path.resolve(__dirname, "../../../../test/fixtures");
 const BASICS = path.join(FIXTURES, "basics.bas");
 const MAIN = path.join(FIXTURES, "include/main.bas");
 
+async function waitFor(cond: () => boolean, timeoutMs = 3000): Promise<boolean> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (cond()) return true;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  return cond();
+}
+
 let basics: vscode.TextDocument;
 let scratch: vscode.TextDocument;
 let scratchPath: string;
@@ -162,6 +171,32 @@ describe("QB64PE providers (extension host)", function () {
       fs.unlinkSync(kw2);
     } finally {
       await cfg.update("installPath", undefined, vscode.ConfigurationTarget.Global);
+    }
+  });
+
+  it("F1 (extension.showHelp) opens the live-converted page", async () => {
+    const install = path.resolve(__dirname, "../../../../test/fixtures/qb64pe-install");
+    const cfg = vscode.workspace.getConfiguration("qb64pe");
+    await cfg.update("installPath", install, vscode.ConfigurationTarget.Global);
+    await cfg.update("isOpenHelpInEditModeEnabled", false, vscode.ConfigurationTarget.Global);
+    const file = path.join(os.tmpdir(), `qb64pe-f1-${process.pid}.bas`);
+    fs.writeFileSync(file, "c = _RGB32(1, 2, 3)\n");
+    try {
+      const doc = await vscode.workspace.openTextDocument(file);
+      const editor = await vscode.window.showTextDocument(doc);
+      editor.selection = new vscode.Selection(0, 4, 0, 10); // select "_RGB32"
+      await vscode.commands.executeCommand("extension.showHelp");
+
+      const opened = await waitFor(() =>
+        vscode.window.tabGroups.all
+          .flatMap((g) => g.tabs)
+          .some((t) => /RGB32/i.test(t.label))
+      );
+      assert.ok(opened, "a preview/editor tab for _RGB32 should open");
+    } finally {
+      await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+      await cfg.update("installPath", undefined, vscode.ConfigurationTarget.Global);
+      fs.unlinkSync(file);
     }
   });
 

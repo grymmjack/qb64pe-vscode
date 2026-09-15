@@ -11,7 +11,6 @@ import * as webViewFunctions from "./webViewFunctions";
 import * as openInQB64PEFunctions from "./openInQB64PEFunctions";
 import * as todoFunctions from "./todoFunctions";
 import * as path from "path";
-import { TokenInfo } from "./TokenInfo";
 import { ReferenceProvider } from "./providers/ReferenceProvider";
 import { DefinitionProvider } from "./providers/DefinitionProvider";
 import { DocumentSymbolProvider } from "./providers/DocumentSymbolProvider";
@@ -74,7 +73,13 @@ export async function activate(context: vscode.ExtensionContext) {
   webViewFunctions.setupAsciiChart(context);
   context.subscriptions.push(
     vscode.commands.registerCommand("extension.showHelp", () => {
-      showHelp();
+      const editor = vscode.window.activeTextEditor;
+      const selected = editor ? editor.document.getText(editor.selection) : "";
+      const token =
+        selected.length > 0
+          ? selected.split(" ")[0]
+          : commonFunctions.getQB64Word(editor);
+      helpService.openHelp(token);
     })
   );
   context.subscriptions.push(
@@ -139,7 +144,7 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.languages.registerDefinitionProvider(
       commonFunctions.getDocumentSelector(),
-      new DefinitionProvider(workspaceIndex)
+      new DefinitionProvider(workspaceIndex, helpService)
     )
   );
   context.subscriptions.push(
@@ -389,10 +394,6 @@ export function openCurrentFileInQB64PE() {
  */
 export function addToGitIgnore(items: any) {
   gitFunctions.addToGitIgnore(items);
-}
-
-export function showHelp() {
-  new TokenInfo().showHelp();
 }
 
 export function showHelpByName(itemName: string) {

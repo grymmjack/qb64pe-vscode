@@ -2,8 +2,8 @@
 import * as vscode from "vscode";
 import * as commonFunctions from "../commonFunctions";
 import * as logFunctions from "../logFunctions";
-import { TokenInfo } from "../TokenInfo";
 import { WorkspaceSymbolIndex } from "./WorkspaceSymbolIndex";
+import { HelpService } from "./HelpService";
 import { findDefinition } from "../core/queries";
 import { fileDirectiveAt } from "../core/parser";
 import { toVsLocation } from "./convert";
@@ -13,7 +13,10 @@ export class DefinitionProvider implements vscode.DefinitionProvider {
     logFunctions.channelType.definitionProvider
   );
 
-  constructor(private readonly workspaceIndex: WorkspaceSymbolIndex) {}
+  constructor(
+    private readonly workspaceIndex: WorkspaceSymbolIndex,
+    private readonly helpService: HelpService
+  ) {}
 
   public async provideDefinition(
     document: vscode.TextDocument,
@@ -59,7 +62,7 @@ export class DefinitionProvider implements vscode.DefinitionProvider {
       if (config.get("isClickKeywordHelpFileEnabled")) {
         const word = commonFunctions.getQB64WordFromDocument(document, position);
         if (word) {
-          new TokenInfo(word, lineText, this.outputChannel).showHelp();
+          this.helpService.openHelp(word);
         }
       }
     } catch (error) {
