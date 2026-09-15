@@ -2,6 +2,10 @@
 
 All notable changes to the "QB64 PE" extension will be documented in this file.
 
+## 0.15.0
+
+- Debugger: **conditional breakpoints and hit counts**. Right-click a breakpoint → Edit Breakpoint to add an Expression (`x > 5`, `count = 10`, `name$ = "hi"`) or a Hit Count (`5`, `>5`, `%3`). QB64PE's runtime has no native conditional breakpoint, so the adapter evaluates the condition on each hit (reading the variable's live value) and keeps running when it isn't met. Simple `variable op literal` conditions are supported; anything more complex falls back to stopping.
+
 ## 0.14.1
 
 - Debugger: fixed TYPE variables showing `<UDT>` with no expander and `p.field` returning `<no such field>`. TYPE definitions and variable types are now read by parsing the program source directly instead of relying on the workspace index (which may not have indexed the file being debugged).

@@ -35,6 +35,11 @@ import {
   CallStackFrame,
 } from "../core/vwatchProtocol";
 import { ResolvedVar, resolveGlobals, resolveLocals } from "../core/vwatchVars";
+import {
+  compareValues,
+  hitConditionMet,
+  parseCondition,
+} from "../core/vwatchConditions";
 
 const THREAD_ID = 1;
 const THREAD_NAME = "QB64PE program";
@@ -74,6 +79,14 @@ interface UdtField {
 interface UdtLayout {
   fields: UdtField[];
   size: number; // NaN if any member size is unknown
+}
+
+/** A breakpoint with optional condition / hit-count. */
+interface BpInfo {
+  line: number;
+  condition?: string;
+  hitCondition?: string;
+  hits: number;
 }
 
 /** QB64 scalar type -> {send name, byte size}. Packed, no alignment. */
@@ -138,8 +151,8 @@ export class QB64DebugSession extends LoggingDebugSession {
   private globals: ResolvedVar[] = [];
   private compilerPath = "";
 
-  /** Breakpoint lines (1-based) requested by VS Code, keyed by file path. */
-  private readonly breakpoints = new Map<string, number[]>();
+  /** Breakpoints requested by VS Code, keyed by file path. */
+  private readonly breakpoints = new Map<string, BpInfo[]>();
   /** Whether the handshake/`run` has been sent. */
   private launched = false;
   private stopOnEntry = false;
@@ -181,6 +194,8 @@ export class QB64DebugSession extends LoggingDebugSession {
     response.body.supportsTerminateRequest = true;
     response.body.supportsGotoTargetsRequest = true; // "set next line" (jump to cursor)
     response.body.supportsEvaluateForHovers = true; // hover a variable to see its value
+    response.body.supportsConditionalBreakpoints = true; // break if <expr>
+    response.body.supportsHitConditionalBreakpoints = true; // break on Nth hit
     // M5 capability (set variable) is added when that write path lands.
     this.sendResponse(response);
     this.sendEvent(new InitializedEvent());
@@ -278,14 +293,22 @@ export class QB64DebugSession extends LoggingDebugSession {
     args: DebugProtocol.SetBreakpointsArguments
   ): void {
     const file = args.source.path ?? "";
-    const requested = (args.breakpoints ?? []).map((b) => b.line);
+    const requested = args.breakpoints ?? [];
     const isMain = this.isMainFile(file);
 
     // vwatch only instruments the main module's lines: breakpoints inside
     // $INCLUDE files can never bind, so report them unverified with a reason
     // rather than letting them silently fail to hit.
     if (isMain) {
-      this.breakpoints.set(file, requested);
+      this.breakpoints.set(
+        file,
+        requested.map((b) => ({
+          line: b.line,
+          condition: b.condition,
+          hitCondition: b.hitCondition,
+          hits: 0,
+        }))
+      );
       if (this.launched && this.socket) {
         this.send(VWatchOut.ClearAllBreakpoints);
         for (const line of this.allBreakpointLines()) {
@@ -297,12 +320,12 @@ export class QB64DebugSession extends LoggingDebugSession {
     }
 
     response.body = {
-      breakpoints: requested.map((line) =>
+      breakpoints: requested.map((b) =>
         isMain
-          ? { verified: true, line }
+          ? { verified: true, line: b.line }
           : {
               verified: false,
-              line,
+              line: b.line,
               message:
                 "QB64PE only stops on lines in the main module; this file is $INCLUDEd.",
             }
@@ -682,6 +705,17 @@ export class QB64DebugSession extends LoggingDebugSession {
   }
 
   private onAddressRead(read: { tempIndex: number; bytes: Buffer }): void {
+    const cond = this.condPending.get(read.tempIndex);
+    if (cond) {
+      this.condPending.delete(read.tempIndex);
+      const value = this.formatValue(cond.varType, read.bytes);
+      if (compareValues(value, cond.op, cond.rhs)) {
+        this.reportStop(cond.line, "breakpoint");
+      } else {
+        this.send(VWatchOut.Run); // condition false → keep running
+      }
+      return;
+    }
     const info = this.varPending.get(read.tempIndex);
     if (info) {
       this.varPending.delete(read.tempIndex);
@@ -1194,8 +1228,34 @@ export class QB64DebugSession extends LoggingDebugSession {
     this.send(this.stopOnEntry ? VWatchOut.Break : VWatchOut.Run);
   }
 
-  /** Handle a stop: refresh state, ask for the call stack, notify VS Code. */
+  /**
+   * Handle a stop. For a breakpoint with a hit-count and/or condition, decide
+   * whether to actually stop: hit-counts are checked synchronously, conditions
+   * are evaluated by reading a variable live (so the real stop is deferred until
+   * the value arrives). Otherwise report the stop immediately.
+   */
   private onStop(line: number, reason: string): void {
+    if (reason === "breakpoint") {
+      const bp = this.breakpointAt(line);
+      if (bp) {
+        if (bp.hitCondition) {
+          bp.hits += 1;
+          if (!hitConditionMet(bp.hitCondition, bp.hits)) {
+            this.send(VWatchOut.Run); // skip this hit
+            return;
+          }
+        }
+        if (bp.condition) {
+          this.checkCondition(line, bp.condition);
+          return;
+        }
+      }
+    }
+    this.reportStop(line, reason);
+  }
+
+  /** Actually pause: refresh state, request the call stack, notify VS Code. */
+  private reportStop(line: number, reason: string): void {
     this.output(`Stopped at line ${line} (${reason}).\n`);
     this.currentLine = line;
     this.callStackReady = false;
@@ -1211,11 +1271,60 @@ export class QB64DebugSession extends LoggingDebugSession {
     this.sendEvent(stopped);
   }
 
-  /** Every breakpoint line across files (M1: effectively the main file). */
+  /** tempIndex -> a deferred conditional-breakpoint decision. */
+  private readonly condPending = new Map<
+    number,
+    { line: number; op: string; rhs: string; varType: string }
+  >();
+
+  /**
+   * Evaluate a conditional breakpoint by reading its variable live, then either
+   * report the stop or resume. Only simple `<var> <op> <literal>` conditions are
+   * supported; anything else (or a read failure) stops, which is the safe
+   * default for a breakpoint the user placed deliberately.
+   */
+  private checkCondition(line: number, condition: string): void {
+    const parsed = parseCondition(condition);
+    const found = parsed
+      ? this.findVar(parsed.name.replace(/[%&!#$~]+$/, "").toUpperCase())
+      : undefined;
+    if (!parsed || !found || found.v.isArray || found.v.isUDT || !this.socket) {
+      this.reportStop(line, "breakpoint");
+      return;
+    }
+    const tempIndex = ++this.varSeq;
+    this.condPending.set(tempIndex, {
+      line,
+      op: parsed.op,
+      rhs: parsed.rhs,
+      varType: found.v.varType,
+    });
+    this.issueGetVar({
+      isLocal: found.isLocal,
+      scope: found.isLocal ? this.currentSub : "",
+      localIndex: found.v.index,
+      varType: found.v.varType,
+      varSize: found.v.size,
+      tempIndex,
+    });
+    setTimeout(() => {
+      if (this.condPending.delete(tempIndex)) this.reportStop(line, "breakpoint");
+    }, 700);
+  }
+
+  private breakpointAt(line: number): BpInfo | undefined {
+    for (const bps of this.breakpoints.values()) {
+      const hit = bps.find((b) => b.line === line);
+      if (hit) return hit;
+    }
+    return undefined;
+  }
+
+  /** Every breakpoint line across files (effectively the main file). */
   private allBreakpointLines(): number[] {
     const set = new Set<number>();
-    for (const lines of this.breakpoints.values()) {
-      for (const line of lines) set.add(line);
+    for (const bps of this.breakpoints.values()) {
+      for (const b of bps) set.add(b.line);
     }
     return [...set].sort((a, b) => a - b);
   }
