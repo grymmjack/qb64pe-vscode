@@ -2,6 +2,10 @@
 
 All notable changes to the "QB64 PE" extension will be documented in this file.
 
+## 0.13.0
+
+- Debugger: **live variable values**. The Variables panel now shows real values for scalar globals and the current routine's locals (INTEGER, LONG, SINGLE, DOUBLE, STRING, `_BYTE`, `_INTEGER64`, `_OFFSET`, and unsigned variants), plus a Constants scope with static CONST values. Hovering a variable and Watch expressions evaluate live too. Values are read via vwatch get-var requests, using the variable table the compiler emits in its generated C (decoded by the new `core/vwatchVars`). Arrays and TYPE variables are listed but not yet expanded (next).
+
 ## 0.12.7
 
 - Debugger: fixed the session terminating on step-into. VS Code can send multiple stackTrace requests before the call stack arrives; the adapter held only the last one, leaving the earlier request unanswered so VS Code tore down the session. All pending stackTrace requests are now queued and answered.

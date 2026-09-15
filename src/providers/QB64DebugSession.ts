@@ -20,20 +20,30 @@ import {
 import { DebugProtocol } from "@vscode/debugprotocol";
 import { SymbolIndex, normalizeBase } from "../core/index";
 import { symbolsInScope } from "../core/queries";
-import { QB64Symbol } from "../core/symbols";
 import {
   FrameReader,
   encode,
   mkl,
+  mki,
   packLineList,
   interpret,
+  decodeValue,
   VWatchIn,
   VWatchOut,
   CallStackFrame,
 } from "../core/vwatchProtocol";
+import { ResolvedVar, resolveGlobals, resolveLocals } from "../core/vwatchVars";
 
 const THREAD_ID = 1;
 const THREAD_NAME = "QB64PE program";
+
+/** A held variablesResponse collecting async get-var replies. */
+interface VarBatch {
+  response: DebugProtocol.VariablesResponse;
+  remaining: number;
+  vars: DebugProtocol.Variable[];
+  settled: boolean;
+}
 
 interface QB64LaunchArguments
   extends DebugProtocol.LaunchRequestArguments {
@@ -74,6 +84,11 @@ export class QB64DebugSession extends LoggingDebugSession {
   private compiledProgram = ""; // the file actually compiled (may be a temp copy)
   private tempProgram?: string; // temp copy to clean up, if any
   private lineCount = 1;
+
+  /** The compiler's generated C variable table (for live variable values). */
+  private generatedC = "";
+  private globals: ResolvedVar[] = [];
+  private compilerPath = "";
 
   /** Breakpoint lines (1-based) requested by VS Code, keyed by file path. */
   private readonly breakpoints = new Map<string, number[]>();
@@ -117,7 +132,8 @@ export class QB64DebugSession extends LoggingDebugSession {
     response.body.supportsConfigurationDoneRequest = true;
     response.body.supportsTerminateRequest = true;
     response.body.supportsGotoTargetsRequest = true; // "set next line" (jump to cursor)
-    // M3 capabilities (set variable, etc.) are added as that milestone lands.
+    response.body.supportsEvaluateForHovers = true; // hover a variable to see its value
+    // M5 capability (set variable) is added when that write path lands.
     this.sendResponse(response);
     this.sendEvent(new InitializedEvent());
   }
@@ -144,6 +160,7 @@ export class QB64DebugSession extends LoggingDebugSession {
     }
 
     const compilerPath = this.resolveCompilerPath(args);
+    this.compilerPath = compilerPath;
     if (!compilerPath) {
       this.fail(
         response,
@@ -175,11 +192,13 @@ export class QB64DebugSession extends LoggingDebugSession {
     }
 
     const exePath = this.exePathFor(this.compiledProgram);
+    const compileStart = Date.now();
     const ok = await this.compile(compilerPath, this.compiledProgram, exePath);
     if (!ok) {
       this.fail(response, "Compilation failed — see the debug console.");
       return;
     }
+    this.loadVariableManifest(compilerPath, compileStart);
     const producedExe = this.findProducedExe(exePath);
     if (!producedExe) {
       this.fail(
@@ -339,16 +358,56 @@ export class QB64DebugSession extends LoggingDebugSession {
     return undefined;
   }
 
+  // ---- variable manifest (M3) ----------------------------------------------
+
+  /**
+   * Read the compiler's generated C from `<compilerDir>/internal/temp` and pull
+   * out the vwatch variable table. Only files written by this compile are read
+   * (by mtime) so a previous program's tables are ignored.
+   */
+  private loadVariableManifest(compilerPath: string, sinceMs: number): void {
+    try {
+      const tempDir = path.join(path.dirname(compilerPath), "internal", "temp");
+      if (!fs.existsSync(tempDir)) return;
+      const parts: string[] = [];
+      for (const name of fs.readdirSync(tempDir)) {
+        if (!name.toLowerCase().endsWith(".txt")) continue;
+        const full = path.join(tempDir, name);
+        try {
+          const st = fs.statSync(full);
+          if (st.mtimeMs + 2000 < sinceMs) continue; // stale (older than this compile)
+          parts.push(fs.readFileSync(full, "latin1"));
+        } catch {
+          /* skip unreadable file */
+        }
+      }
+      this.generatedC = parts.join("\n");
+      this.globals = resolveGlobals(this.generatedC);
+      if (this.isTracing()) {
+        this.output(
+          `Loaded variable manifest: ${this.globals.length} global(s).\n`
+        );
+      }
+    } catch (e) {
+      this.output(`Could not read variable manifest: ${e}\n`, "stderr");
+    }
+  }
+
   // ---- variables (M3) ------------------------------------------------------
   //
-  // vwatch can report live values, but only given each variable's storage index
-  // and type — metadata the QB64PE compiler assigns inline during its own parse
-  // pass, with no manifest file we could read. Until that manifest exists, we
-  // present the *symbols in scope* (names + declared types from the index, and
-  // real values for CONSTs), clearly labeled, rather than fake values. See
-  // docs/DEBUGGER_PLAN.md §3/§9.
+  // Live values: the compiler's generated C gives us each variable's slot in
+  // vwatch_global_vars[] / vwatch_local_vars[] (see core/vwatchVars). For each
+  // in-scope variable we issue a get-var request and decode the `address read:`
+  // reply. Requests are async, so a variablesResponse is held until its replies
+  // arrive (or a short timeout). Arrays and UDTs are listed but not yet read.
 
-  private readonly scopeHandles = new Handles<"locals" | "globals">();
+  private readonly scopeHandles = new Handles<"locals" | "globals" | "constants">();
+  private varSeq = 0;
+  /** tempIndex -> the pending get-var it belongs to. */
+  private readonly varPending = new Map<
+    number,
+    { batch: VarBatch; name: string; varType: string }
+  >();
 
   protected scopesRequest(
     response: DebugProtocol.ScopesResponse,
@@ -358,6 +417,7 @@ export class QB64DebugSession extends LoggingDebugSession {
       scopes: [
         new Scope("Locals", this.scopeHandles.create("locals"), false),
         new Scope("Module & Globals", this.scopeHandles.create("globals"), false),
+        new Scope("Constants", this.scopeHandles.create("constants"), false),
       ],
     };
     this.sendResponse(response);
@@ -368,54 +428,188 @@ export class QB64DebugSession extends LoggingDebugSession {
     args: DebugProtocol.VariablesArguments
   ): void {
     const kind = this.scopeHandles.get(args.variablesReference);
-    // Stops only occur on main-module lines, so the current scope resolves
-    // against the program file at the stop line.
-    const inScope = symbolsInScope(this.index, this.program, this.currentLine - 1);
-    const wanted = inScope.filter((s) => {
-      if (s.type !== "VARIABLE" && s.type !== "CONST") return false;
-      return kind === "locals" ? s.scope === "LOCAL" : s.scope !== "LOCAL";
-    });
-    response.body = {
-      variables: wanted.map((s) => ({
-        name: s.name,
-        value: this.describeSymbol(s),
-        variablesReference: 0,
-        presentationHint: {
-          kind: s.type === "CONST" ? "data" : "property",
-          attributes: s.type === "CONST" ? ["constant", "readOnly"] : [],
-        },
-      })),
+
+    if (kind === "constants") {
+      response.body = { variables: this.constantVariables() };
+      this.sendResponse(response);
+      return;
+    }
+
+    const isLocal = kind === "locals";
+    const vars = isLocal ? this.currentLocalVars() : this.globals;
+
+    // Arrays and UDTs need index/offset handling that is not wired yet; list
+    // them with a placeholder and request live values only for scalars.
+    const placeholders: DebugProtocol.Variable[] = [];
+    const scalars: ResolvedVar[] = [];
+    for (const v of vars) {
+      if (v.isArray) {
+        placeholders.push({
+          name: v.name,
+          value: `<array of ${v.varType}>`,
+          variablesReference: 0,
+        });
+      } else {
+        scalars.push(v);
+      }
+    }
+
+    if (!this.socket || scalars.length === 0) {
+      response.body = { variables: placeholders };
+      this.sendResponse(response);
+      return;
+    }
+
+    const batch: VarBatch = {
+      response,
+      remaining: scalars.length,
+      vars: placeholders,
+      settled: false,
     };
-    this.sendResponse(response);
+    const scope = isLocal ? this.currentSub : "";
+    for (const v of scalars) {
+      const tempIndex = ++this.varSeq;
+      this.varPending.set(tempIndex, { batch, name: v.name, varType: v.varType });
+      this.sendGetVar(isLocal, tempIndex, scope, v);
+    }
+    // Defensive: settle even if some replies never arrive.
+    setTimeout(() => this.settleVarBatch(batch), 600);
   }
+
+  /** CONST symbols with their static values (always correct, no protocol). */
+  private constantVariables(): DebugProtocol.Variable[] {
+    const consts = symbolsInScope(this.index, this.program, this.currentLine - 1)
+      .filter((s) => s.type === "CONST");
+    return consts.map((s) => ({
+      name: s.name,
+      value: s.value ?? "<const>",
+      variablesReference: 0,
+      presentationHint: { kind: "data", attributes: ["constant", "readOnly"] },
+    }));
+  }
+
+  /** Locals of the current routine, from the compiler manifest. */
+  private currentLocalVars(): ResolvedVar[] {
+    if (!this.currentSub) return [];
+    return resolveLocals(this.generatedC, this.currentSub);
+  }
+
+  /**
+   * Build and send a get-var request. Layout mirrors the QB64PE IDE
+   * (`ide_methods.bas`): a scalar has no array indexes, element or offset.
+   */
+  private sendGetVar(
+    isLocal: boolean,
+    tempIndex: number,
+    scope: string,
+    v: ResolvedVar
+  ): void {
+    const scopeBuf = Buffer.from(scope, "latin1");
+    const typeBuf = Buffer.from(v.varType, "latin1");
+    const payload = Buffer.concat([
+      mkl(tempIndex), // our correlation tag
+      Buffer.from([0]), // isArray = 0
+      mkl(0), // originalVarLineNumber (unused for scalars)
+      mkl(v.index), // localIndex
+      mkl(0), // array-indexes length (none)
+      mkl(0), // arrayElementSize
+      mkl(0), // element
+      mkl(0), // elementOffset
+      mkl(v.size), // varSize
+      mkl(tempIndex), // storage (echoed back; reuse the tag)
+      mki(scopeBuf.length),
+      scopeBuf,
+      mki(typeBuf.length),
+      typeBuf,
+    ]);
+    this.send(isLocal ? VWatchOut.GetLocalVar : VWatchOut.GetGlobalVar, payload);
+  }
+
+  private onAddressRead(read: {
+    tempIndex: number;
+    bytes: Buffer;
+  }): void {
+    const info = this.varPending.get(read.tempIndex);
+    if (info) {
+      this.varPending.delete(read.tempIndex);
+      info.batch.vars.push({
+        name: info.name,
+        value: this.formatValue(info.varType, read.bytes),
+        variablesReference: 0,
+      });
+      info.batch.remaining -= 1;
+      if (info.batch.remaining <= 0) this.settleVarBatch(info.batch);
+      return;
+    }
+    const ev = this.evalPending.get(read.tempIndex);
+    if (ev) {
+      this.evalPending.delete(read.tempIndex);
+      ev.response.body = {
+        result: this.formatValue(ev.varType, read.bytes),
+        variablesReference: 0,
+      };
+      this.sendResponse(ev.response);
+    }
+  }
+
+  private formatValue(varType: string, bytes: Buffer): string {
+    const decoded = decodeValue(varType, bytes);
+    if (!decoded) return "<unreadable>";
+    return decoded.text + (decoded.approximate ? " (approx)" : "");
+  }
+
+  private settleVarBatch(batch: VarBatch): void {
+    if (batch.settled) return;
+    batch.settled = true;
+    batch.vars.sort((a, b) => a.name.localeCompare(b.name));
+    batch.response.body = { variables: batch.vars };
+    this.sendResponse(batch.response);
+  }
+
+  private readonly evalPending = new Map<
+    number,
+    { response: DebugProtocol.EvaluateResponse; varType: string }
+  >();
 
   protected evaluateRequest(
     response: DebugProtocol.EvaluateResponse,
     args: DebugProtocol.EvaluateArguments
   ): void {
     const name = (args.expression || "").trim();
-    const hits = name ? this.index.lookupBase(normalizeBase(name)) : [];
-    const symbol =
-      hits.find((s) => s.type === "CONST") ??
-      hits.find((s) => s.type === "VARIABLE");
-    if (symbol) {
-      response.body = { result: this.describeSymbol(symbol), variablesReference: 0 };
-    } else {
-      response.body = {
-        result: "<no live value — QB64PE variable inspection needs a compiler manifest>",
-        variablesReference: 0,
-      };
-    }
-    this.sendResponse(response);
-  }
+    const upper = name.replace(/[%&!#$~]+$/, "").toUpperCase(); // drop a sigil
 
-  /** A display string: real value for CONSTs, declared type + note otherwise. */
-  private describeSymbol(s: QB64Symbol): string {
-    if (s.type === "CONST" && s.value !== undefined) {
-      return s.value;
+    // Constants resolve statically.
+    const constHit = this.index
+      .lookupBase(normalizeBase(name))
+      .find((s) => s.type === "CONST");
+    if (constHit?.value !== undefined) {
+      response.body = { result: constHit.value, variablesReference: 0 };
+      this.sendResponse(response);
+      return;
     }
-    const type = s.dataType ? `<${s.dataType}>` : "<?>";
-    return `${type} — no live value`;
+
+    // Otherwise find the variable in the manifest and read it live.
+    const local = this.currentLocalVars().find((v) => v.name === upper);
+    const global = this.globals.find((v) => v.name === upper);
+    const target = local ?? global;
+    if (this.socket && target && !target.isArray) {
+      const tempIndex = ++this.varSeq;
+      this.evalPending.set(tempIndex, { response, varType: target.varType });
+      this.sendGetVar(!!local, tempIndex, local ? this.currentSub : "", target);
+      setTimeout(() => {
+        if (this.evalPending.delete(tempIndex)) {
+          response.body = { result: "<no reply>", variablesReference: 0 };
+          this.sendResponse(response);
+        }
+      }, 600);
+      return;
+    }
+
+    response.body = {
+      result: target?.isArray ? "<array>" : "<not in scope>",
+      variablesReference: 0,
+    };
+    this.sendResponse(response);
   }
 
   protected continueRequest(
@@ -566,6 +760,9 @@ export class QB64DebugSession extends LoggingDebugSession {
         this.callStack = msg.frames;
         this.callStackReady = true;
         this.flushPendingStackTrace();
+        break;
+      case "addressRead":
+        this.onAddressRead(msg.read);
         break;
       case "error":
         this.output(`Runtime error at line ${msg.line}.\n`, "stderr");
