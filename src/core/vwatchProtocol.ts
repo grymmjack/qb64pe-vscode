@@ -120,6 +120,13 @@ export interface CallStackFrame {
   sub: string;
   /** The source line the frame is executing at, or `undefined` if unparsed. */
   line?: number;
+  /**
+   * When the routine is defined in an `$INCLUDE` file, vwatch prefixes its name
+   * with `(file, line) `; this is that file name (else `undefined`).
+   */
+  includeFile?: string;
+  /** The line within {@link includeFile} where the routine is defined. */
+  includeLine?: number;
   /** The original frame text, verbatim. */
   raw: string;
 }
@@ -258,13 +265,24 @@ export function parseCallStack(value: Buffer): CallStackFrame[] {
   return text.split("\0").map(parseFrame);
 }
 
-/** Parse one `subname, line NNN` frame. */
+/**
+ * Parse one `subname, line NNN` frame. When the routine lives in an `$INCLUDE`
+ * file, vwatch names it `(incfile, incline) SubName`; that prefix is split out
+ * into {@link CallStackFrame.includeFile}/`includeLine` and stripped from `sub`.
+ */
 export function parseFrame(raw: string): CallStackFrame {
   const m = /^(.*?),\s*line\s+(-?\d+)\s*$/i.exec(raw);
-  if (m) {
-    return { sub: m[1].trim(), line: parseInt(m[2], 10), raw };
+  const frame: CallStackFrame = m
+    ? { sub: m[1].trim(), line: parseInt(m[2], 10), raw }
+    : { sub: raw.trim(), raw };
+
+  const inc = /^\((.+?),\s*(\d+)\)\s*(.*)$/.exec(frame.sub);
+  if (inc) {
+    frame.includeFile = inc[1].trim();
+    frame.includeLine = parseInt(inc[2], 10);
+    frame.sub = inc[3].trim();
   }
-  return { sub: raw.trim(), raw };
+  return frame;
 }
 
 /**

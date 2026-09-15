@@ -166,6 +166,14 @@ describe("core/vwatchProtocol", () => {
       assert.strictEqual(f.sub, "weird frame text");
       assert.strictEqual(f.line, undefined);
     });
+
+    it("splits the (incfile, incline) prefix for routines in $INCLUDEs", () => {
+      const f = parseFrame("(lib.bi,12) DrawBox, line 40");
+      assert.strictEqual(f.sub, "DrawBox");
+      assert.strictEqual(f.line, 40);
+      assert.strictEqual(f.includeFile, "lib.bi");
+      assert.strictEqual(f.includeLine, 12);
+    });
   });
 
   describe("address read parsing", () => {

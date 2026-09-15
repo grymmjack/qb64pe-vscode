@@ -14,9 +14,13 @@ import {
   Thread,
   StackFrame,
   Source,
+  Scope,
+  Handles,
 } from "@vscode/debugadapter";
 import { DebugProtocol } from "@vscode/debugprotocol";
 import { SymbolIndex, normalizeBase } from "../core/index";
+import { symbolsInScope } from "../core/queries";
+import { QB64Symbol } from "../core/symbols";
 import {
   FrameReader,
   encode,
@@ -82,6 +86,9 @@ export class QB64DebugSession extends LoggingDebugSession {
   private currentLine = 0;
   private currentSub = "";
   private callStack: CallStackFrame[] = [];
+  private callStackReady = false;
+  /** A stackTrace response held until the call stack arrives. */
+  private pendingStackTrace?: DebugProtocol.StackTraceResponse;
 
   constructor(private readonly index: SymbolIndex) {
     super("qb64pe-debug.txt");
@@ -98,8 +105,8 @@ export class QB64DebugSession extends LoggingDebugSession {
     response.body = response.body || {};
     response.body.supportsConfigurationDoneRequest = true;
     response.body.supportsTerminateRequest = true;
-    // M2/M3 capabilities (step back, set variable, etc.) are added as those
-    // milestones land.
+    response.body.supportsGotoTargetsRequest = true; // "set next line" (jump to cursor)
+    // M3 capabilities (set variable, etc.) are added as that milestone lands.
     this.sendResponse(response);
     this.sendEvent(new InitializedEvent());
   }
@@ -193,22 +200,42 @@ export class QB64DebugSession extends LoggingDebugSession {
   ): void {
     const file = args.source.path ?? "";
     const requested = (args.breakpoints ?? []).map((b) => b.line);
-    this.breakpoints.set(file, requested);
+    const isMain = this.isMainFile(file);
 
-    // If already connected, apply the delta live.
-    if (this.launched && this.socket) {
-      // Simplest correct approach: clear this file's breakpoints then set the
-      // requested ones. (M4 will scope this per compiled-line mapping.)
-      this.send(VWatchOut.ClearAllBreakpoints);
-      for (const line of this.allBreakpointLines()) {
-        this.send(VWatchOut.SetBreakpoint, mkl(line));
+    // vwatch only instruments the main module's lines: breakpoints inside
+    // $INCLUDE files can never bind, so report them unverified with a reason
+    // rather than letting them silently fail to hit.
+    if (isMain) {
+      this.breakpoints.set(file, requested);
+      if (this.launched && this.socket) {
+        this.send(VWatchOut.ClearAllBreakpoints);
+        for (const line of this.allBreakpointLines()) {
+          this.send(VWatchOut.SetBreakpoint, mkl(line));
+        }
       }
+    } else {
+      this.breakpoints.delete(file);
     }
 
     response.body = {
-      breakpoints: requested.map((line) => ({ verified: true, line })),
+      breakpoints: requested.map((line) =>
+        isMain
+          ? { verified: true, line }
+          : {
+              verified: false,
+              line,
+              message:
+                "QB64PE only stops on lines in the main module; this file is $INCLUDEd.",
+            }
+      ),
     };
     this.sendResponse(response);
+  }
+
+  /** True when `file` is the program being debugged (the main module). */
+  private isMainFile(file: string): boolean {
+    if (!file) return false;
+    return path.resolve(file) === path.resolve(this.program);
   }
 
   protected configurationDoneRequest(
@@ -229,18 +256,156 @@ export class QB64DebugSession extends LoggingDebugSession {
     response: DebugProtocol.StackTraceResponse,
     _args: DebugProtocol.StackTraceArguments
   ): void {
-    // M1: a single frame at the current stop. M2 replaces this with the full
-    // parsed call stack.
-    const frames: StackFrame[] = [
-      new StackFrame(
-        0,
-        this.currentSub || "(main)",
-        this.sourceFor(this.program),
-        this.currentLine
-      ),
-    ];
+    // The call stack is requested on each stop; hold the response until it
+    // arrives so the panel shows every frame, not just the current one.
+    if (this.callStackReady) {
+      this.respondStackTrace(response);
+    } else {
+      this.pendingStackTrace = response;
+    }
+  }
+
+  private flushPendingStackTrace(): void {
+    if (this.pendingStackTrace) {
+      const response = this.pendingStackTrace;
+      this.pendingStackTrace = undefined;
+      this.respondStackTrace(response);
+    }
+  }
+
+  private respondStackTrace(response: DebugProtocol.StackTraceResponse): void {
+    const frames = this.buildFrames();
     response.body = { stackFrames: frames, totalFrames: frames.length };
     this.sendResponse(response);
+  }
+
+  /**
+   * Build DAP frames from the vwatch call stack. vwatch sends frames as verbatim
+   * `subname, line NNN` strings ordered outermost→innermost (the current sub
+   * last); we reverse them so frame 0 is the live position and override its line
+   * with the actual stop line. When the stack is empty we are in the main
+   * module, so a single live frame is shown.
+   */
+  private buildFrames(): StackFrame[] {
+    if (this.callStack.length === 0) {
+      return [
+        new StackFrame(
+          0,
+          this.currentSub || "(main)",
+          this.sourceFor(this.program),
+          this.currentLine
+        ),
+      ];
+    }
+    const innermostFirst = [...this.callStack].reverse();
+    return innermostFirst.map((frame, i) => {
+      // Routines defined in an $INCLUDE carry the include file+line; otherwise
+      // resolve the routine's declaring file via the symbol index.
+      const inc = frame.includeFile
+        ? this.resolveIncludeFile(frame.includeFile)
+        : undefined;
+      const loc = inc ? undefined : this.routineLocation(frame.sub);
+      const file = inc ?? loc?.file ?? this.program;
+      // Frame 0 is the live position; use the exact stop line for it.
+      const line =
+        i === 0
+          ? this.currentLine
+          : frame.line ?? frame.includeLine ?? loc?.line ?? 0;
+      return new StackFrame(
+        i,
+        frame.sub || "(main)",
+        this.sourceFor(file),
+        line
+      );
+    });
+  }
+
+  /** Resolve a bare include file name to a path in the program's include graph. */
+  private resolveIncludeFile(name: string): string | undefined {
+    const target = path.basename(name).toLowerCase();
+    for (const file of this.index.closure(this.program)) {
+      if (path.basename(file).toLowerCase() === target) return file;
+    }
+    return undefined;
+  }
+
+  // ---- variables (M3) ------------------------------------------------------
+  //
+  // vwatch can report live values, but only given each variable's storage index
+  // and type — metadata the QB64PE compiler assigns inline during its own parse
+  // pass, with no manifest file we could read. Until that manifest exists, we
+  // present the *symbols in scope* (names + declared types from the index, and
+  // real values for CONSTs), clearly labeled, rather than fake values. See
+  // docs/DEBUGGER_PLAN.md §3/§9.
+
+  private readonly scopeHandles = new Handles<"locals" | "globals">();
+
+  protected scopesRequest(
+    response: DebugProtocol.ScopesResponse,
+    _args: DebugProtocol.ScopesArguments
+  ): void {
+    response.body = {
+      scopes: [
+        new Scope("Locals", this.scopeHandles.create("locals"), false),
+        new Scope("Module & Globals", this.scopeHandles.create("globals"), false),
+      ],
+    };
+    this.sendResponse(response);
+  }
+
+  protected variablesRequest(
+    response: DebugProtocol.VariablesResponse,
+    args: DebugProtocol.VariablesArguments
+  ): void {
+    const kind = this.scopeHandles.get(args.variablesReference);
+    // Stops only occur on main-module lines, so the current scope resolves
+    // against the program file at the stop line.
+    const inScope = symbolsInScope(this.index, this.program, this.currentLine - 1);
+    const wanted = inScope.filter((s) => {
+      if (s.type !== "VARIABLE" && s.type !== "CONST") return false;
+      return kind === "locals" ? s.scope === "LOCAL" : s.scope !== "LOCAL";
+    });
+    response.body = {
+      variables: wanted.map((s) => ({
+        name: s.name,
+        value: this.describeSymbol(s),
+        variablesReference: 0,
+        presentationHint: {
+          kind: s.type === "CONST" ? "data" : "property",
+          attributes: s.type === "CONST" ? ["constant", "readOnly"] : [],
+        },
+      })),
+    };
+    this.sendResponse(response);
+  }
+
+  protected evaluateRequest(
+    response: DebugProtocol.EvaluateResponse,
+    args: DebugProtocol.EvaluateArguments
+  ): void {
+    const name = (args.expression || "").trim();
+    const hits = name ? this.index.lookupBase(normalizeBase(name)) : [];
+    const symbol =
+      hits.find((s) => s.type === "CONST") ??
+      hits.find((s) => s.type === "VARIABLE");
+    if (symbol) {
+      response.body = { result: this.describeSymbol(symbol), variablesReference: 0 };
+    } else {
+      response.body = {
+        result: "<no live value — QB64PE variable inspection needs a compiler manifest>",
+        variablesReference: 0,
+      };
+    }
+    this.sendResponse(response);
+  }
+
+  /** A display string: real value for CONSTs, declared type + note otherwise. */
+  private describeSymbol(s: QB64Symbol): string {
+    if (s.type === "CONST" && s.value !== undefined) {
+      return s.value;
+    }
+    const type = s.dataType ? `<${s.dataType}>` : "<?>";
+    return `${type} — no live value`;
   }
 
   protected continueRequest(
@@ -248,6 +413,49 @@ export class QB64DebugSession extends LoggingDebugSession {
     _args: DebugProtocol.ContinueArguments
   ): void {
     this.send(VWatchOut.Run);
+    this.sendResponse(response);
+  }
+
+  protected nextRequest(
+    response: DebugProtocol.NextResponse,
+    _args: DebugProtocol.NextArguments
+  ): void {
+    this.send(VWatchOut.StepOver);
+    this.sendResponse(response);
+  }
+
+  protected stepInRequest(
+    response: DebugProtocol.StepInResponse,
+    _args: DebugProtocol.StepInArguments
+  ): void {
+    this.send(VWatchOut.Step);
+    this.sendResponse(response);
+  }
+
+  protected stepOutRequest(
+    response: DebugProtocol.StepOutResponse,
+    _args: DebugProtocol.StepOutArguments
+  ): void {
+    this.send(VWatchOut.StepOut);
+    this.sendResponse(response);
+  }
+
+  protected gotoTargetsRequest(
+    response: DebugProtocol.GotoTargetsResponse,
+    args: DebugProtocol.GotoTargetsArguments
+  ): void {
+    // Offer the requested line as a jump target ("set next line").
+    response.body = {
+      targets: [{ id: args.line, label: `Line ${args.line}`, line: args.line }],
+    };
+    this.sendResponse(response);
+  }
+
+  protected gotoRequest(
+    response: DebugProtocol.GotoResponse,
+    args: DebugProtocol.GotoArguments
+  ): void {
+    this.send(VWatchOut.SetNextLine, mkl(args.targetId));
     this.sendResponse(response);
   }
 
@@ -330,25 +538,22 @@ export class QB64DebugSession extends LoggingDebugSession {
         // Window handle; not needed for M1 (used for foreground on Windows).
         break;
       case "stopped":
-        this.currentLine = msg.line;
-        this.requestCurrentSub();
-        this.sendEvent(
-          new StoppedEvent(
-            msg.reason === "breakpoint" ? "breakpoint" : "step",
-            THREAD_ID
-          )
-        );
+        this.onStop(msg.line, msg.reason === "breakpoint" ? "breakpoint" : "step");
         break;
       case "currentSub":
         this.currentSub = msg.name;
         break;
+      case "callStackSize":
+        // The count precedes the frames; nothing to do but await "call stack".
+        break;
       case "callStack":
         this.callStack = msg.frames;
+        this.callStackReady = true;
+        this.flushPendingStackTrace();
         break;
       case "error":
         this.output(`Runtime error at line ${msg.line}.\n`, "stderr");
-        this.currentLine = msg.line;
-        this.sendEvent(new StoppedEvent("exception", THREAD_ID));
+        this.onStop(msg.line, "exception");
         break;
       case "enterInput":
         this.output("(program is waiting for input)\n");
@@ -383,8 +588,14 @@ export class QB64DebugSession extends LoggingDebugSession {
     this.send(this.stopOnEntry ? VWatchOut.Break : VWatchOut.Run);
   }
 
-  private requestCurrentSub(): void {
+  /** Handle a stop: refresh state, ask for sub + call stack, notify VS Code. */
+  private onStop(line: number, reason: string): void {
+    this.currentLine = line;
+    this.callStackReady = false;
+    this.callStack = [];
     this.send(VWatchOut.CurrentSub);
+    this.send(VWatchOut.CallStack);
+    this.sendEvent(new StoppedEvent(reason, THREAD_ID));
   }
 
   /** Every breakpoint line across files (M1: effectively the main file). */
