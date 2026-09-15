@@ -2,6 +2,10 @@
 
 All notable changes to the "QB64 PE" extension will be documented in this file.
 
+## 0.14.1
+
+- Debugger: fixed TYPE variables showing `<UDT>` with no expander and `p.field` returning `<no such field>`. TYPE definitions and variable types are now read by parsing the program source directly instead of relying on the workspace index (which may not have indexed the file being debugged).
+
 ## 0.14.0
 
 - Debugger: **TYPE variables and arrays**. A TYPE (UDT) variable is now expandable in the Variables panel — click to see each field's live value (nested TYPEs expand too), computed from the TYPE's packed byte layout. Array elements and TYPE fields can be inspected via the Watch panel and hovers: `balls(3)`, `grid(2,4)`, `player.score`, `enemy.pos.x`. (Arrays are read by index rather than auto-expanded, since the runtime doesn't expose array bounds — same model as the QB64PE IDE.) This completes live inspection (M3).

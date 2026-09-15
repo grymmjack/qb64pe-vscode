@@ -20,6 +20,7 @@ import {
 import { DebugProtocol } from "@vscode/debugprotocol";
 import { SymbolIndex, normalizeBase } from "../core/index";
 import { symbolsInScope } from "../core/queries";
+import { parseContent } from "../core/parser";
 import { QB64Symbol } from "../core/symbols";
 import {
   FrameReader,
@@ -720,12 +721,36 @@ export class QB64DebugSession extends LoggingDebugSession {
 
   // ---- type layout ---------------------------------------------------------
 
-  /** The TYPE name of a variable (from the symbol index), or undefined. */
+  /** Symbols parsed directly from the program being debugged. */
+  private parsedProgram?: QB64Symbol[];
+  private programSyms(): QB64Symbol[] {
+    if (!this.parsedProgram) {
+      try {
+        this.parsedProgram = parseContent(
+          fs.readFileSync(this.program, "latin1"),
+          this.program
+        );
+      } catch {
+        this.parsedProgram = [];
+      }
+    }
+    return this.parsedProgram;
+  }
+
+  /**
+   * The TYPE name of a variable. Resolved from a direct parse of the program
+   * (authoritative for the file being debugged) and the workspace index (covers
+   * `$INCLUDE`d declarations when they are indexed).
+   */
   private udtTypeOf(name: string): string | undefined {
-    const hit = this.index
-      .lookupBase(name)
-      .find((s) => s.type === "VARIABLE" && s.dataType);
-    const dt = hit?.dataType;
+    const local = this.programSyms().find(
+      (s) => s.type === "VARIABLE" && s.name.toUpperCase() === name && s.dataType
+    );
+    const dt =
+      local?.dataType ??
+      this.index
+        .lookupBase(name)
+        .find((s) => s.type === "VARIABLE" && s.dataType)?.dataType;
     return dt && this.types().has(dt.toUpperCase()) ? dt : undefined;
   }
 
@@ -733,6 +758,9 @@ export class QB64DebugSession extends LoggingDebugSession {
     if (!this.typeByName) {
       this.typeByName = new Map();
       for (const s of this.index.allSymbols()) {
+        if (s.type === "TYPE") this.typeByName.set(s.name.toUpperCase(), s);
+      }
+      for (const s of this.programSyms()) {
         if (s.type === "TYPE") this.typeByName.set(s.name.toUpperCase(), s);
       }
     }
