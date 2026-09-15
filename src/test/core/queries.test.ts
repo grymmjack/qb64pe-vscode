@@ -9,6 +9,7 @@ import {
   findOccurrences,
   memberContextAt,
   resolveAt,
+  searchSymbols,
   symbolsInScope,
 } from "../../core/queries";
 
@@ -304,5 +305,26 @@ describe("core/queries symbolsInScope", () => {
     } finally {
       index.removeFile(SC);
     }
+  });
+});
+
+describe("core/queries searchSymbols and file-restricted occurrences", () => {
+  const index = buildIndex();
+
+  it("searches routines, types and consts by subsequence, prefix matches first", () => {
+    assert.deepStrictEqual(searchSymbols(index, "half").map((s) => s.name), ["Half%"]);
+    assert.deepStrictEqual(searchSymbols(index, "dv").map((s) => s.name), ["DeepValue&"]);
+    const all = searchSymbols(index, "");
+    assert.ok(all.some((s) => s.name === "Player" && s.type === "TYPE"));
+    assert.ok(all.some((s) => s.name === "LIB_VERSION" && s.type === "CONST"));
+    assert.ok(!all.some((s) => s.type === "VARIABLE" || s.type === "LABEL"));
+    const a = searchSymbols(index, "a").map((s) => s.name);
+    assert.ok(a.indexOf("Add") < a.indexOf("Player"), a.join());
+  });
+
+  it("can restrict occurrences to given files", () => {
+    const helper = index.lookup("UtilHelper")[0];
+    assert.deepStrictEqual(findOccurrences(index, helper, true, [UTIL]).map(brief), ["util.bm:1:4:declaration"]);
+    assert.deepStrictEqual(findOccurrences(index, helper, true, [DEEP]).map(brief), ["deep.bm:5:4:read"]);
   });
 });

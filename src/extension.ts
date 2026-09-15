@@ -22,6 +22,8 @@ import { CompletionItemProvider } from "./providers/CompletionItemProvider";
 import { InlineCompletionItemProvider } from "./providers/InlineCompletionItemProvider";
 import { SignatureHelpProvider } from "./providers/SignatureHelpProvider";
 import { RenameProvider } from "./providers/RenameProvider";
+import { DocumentHighlightProvider } from "./providers/DocumentHighlightProvider";
+import { WorkspaceSymbolProvider } from "./providers/WorkspaceSymbolProvider";
 import { WorkspaceSymbolIndex } from "./providers/WorkspaceSymbolIndex";
 import { TodoTreeProvider } from "./TodoTreeProvider";
 
@@ -177,6 +179,18 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.languages.registerRenameProvider(
       documentSelector,
       new RenameProvider(workspaceIndex)
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.languages.registerDocumentHighlightProvider(
+      documentSelector,
+      new DocumentHighlightProvider(workspaceIndex)
+    )
+  );
+  context.subscriptions.push(
+    vscode.languages.registerWorkspaceSymbolProvider(
+      new WorkspaceSymbolProvider(workspaceIndex)
     )
   );
 

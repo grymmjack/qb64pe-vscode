@@ -448,7 +448,8 @@ export function findDefinition(
 export function findOccurrences(
   index: SymbolIndex,
   symbol: QB64Symbol,
-  includeDeclaration = true
+  includeDeclaration = true,
+  onlyFiles?: string[]
 ): Occurrence[] {
   const key = symbol.file;
   let files: string[];
@@ -464,6 +465,10 @@ export function findOccurrences(
     }
   } else {
     files = index.unitOf(key);
+  }
+  if (onlyFiles) {
+    const allowed = new Set(onlyFiles.map(normalizePath));
+    files = files.filter((f) => allowed.has(f));
   }
 
   const needle = normalizeBase(symbol.name);
@@ -536,4 +541,34 @@ function rangeOf(line: number, id: Identifier): Range {
     start: { line, character: id.start },
     end: { line, character: id.end },
   };
+}
+
+const SEARCHABLE = new Set<QB64Symbol["type"]>(["SUB", "FUNCTION", "TYPE", "CONST"]);
+
+/**
+ * Workspace symbol search (Ctrl+T): routines, TYPEs and CONSTs whose name
+ * contains the query's characters in order (case-insensitive). Prefix
+ * matches come first, then the rest alphabetically. Empty query = all.
+ */
+export function searchSymbols(
+  index: SymbolIndex,
+  query: string,
+  limit = 1000
+): QB64Symbol[] {
+  const q = query.trim().toLowerCase();
+  const matches = index
+    .allSymbols()
+    .filter((s) => SEARCHABLE.has(s.type) && (q === "" || isSubsequence(q, s.name.toLowerCase())));
+  matches.sort((a, b) => {
+    const ap = q !== "" && a.name.toLowerCase().startsWith(q) ? 0 : 1;
+    const bp = q !== "" && b.name.toLowerCase().startsWith(q) ? 0 : 1;
+    return ap - bp || a.name.localeCompare(b.name) || a.file.localeCompare(b.file);
+  });
+  return matches.slice(0, limit);
+}
+
+function isSubsequence(needle: string, haystack: string): boolean {
+  let i = 0;
+  for (const c of haystack) if (c === needle[i] && ++i === needle.length) return true;
+  return needle.length === 0;
 }
