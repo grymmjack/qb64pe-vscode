@@ -25,6 +25,10 @@ import { RenameProvider } from "./providers/RenameProvider";
 import { DocumentHighlightProvider } from "./providers/DocumentHighlightProvider";
 import { WorkspaceSymbolProvider } from "./providers/WorkspaceSymbolProvider";
 import { FoldingRangeProvider } from "./providers/FoldingRangeProvider";
+import {
+  SemanticTokensProvider,
+  semanticTokensLegend,
+} from "./providers/SemanticTokensProvider";
 import { WorkspaceSymbolIndex } from "./providers/WorkspaceSymbolIndex";
 import { TodoTreeProvider } from "./TodoTreeProvider";
 
@@ -199,6 +203,16 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.languages.registerFoldingRangeProvider(
       documentSelector,
       new FoldingRangeProvider()
+    )
+  );
+
+  const semanticTokensProvider = new SemanticTokensProvider(workspaceIndex);
+  context.subscriptions.push(
+    semanticTokensProvider,
+    vscode.languages.registerDocumentSemanticTokensProvider(
+      documentSelector,
+      semanticTokensProvider,
+      semanticTokensLegend
     )
   );
 
