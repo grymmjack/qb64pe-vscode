@@ -98,6 +98,13 @@ export class WorkspaceSymbolIndex implements vscode.Disposable {
     this.changeEmitter.fire([key]);
   }
 
+  /** ensureDocument for every open document (cheap when nothing changed). */
+  ensureAllDocuments(): void {
+    for (const document of vscode.workspace.textDocuments) {
+      this.ensureDocument(document);
+    }
+  }
+
   dispose(): void {
     for (const timer of this.timers.values()) clearTimeout(timer);
     this.timers.clear();

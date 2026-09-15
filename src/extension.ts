@@ -120,7 +120,7 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.languages.registerReferenceProvider(
       commonFunctions.getDocumentSelector(),
-      new ReferenceProvider()
+      new ReferenceProvider(workspaceIndex)
     )
   );
   context.subscriptions.push(
