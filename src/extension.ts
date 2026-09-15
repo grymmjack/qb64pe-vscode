@@ -91,6 +91,9 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   );
   context.subscriptions.push(
+    vscode.commands.registerCommand("qb64pe.buildHelp", () => helpService.buildAllHelp())
+  );
+  context.subscriptions.push(
     vscode.commands.registerCommand(
       "extension.showHelpIndexAlphabetical",
       () => {

@@ -4,7 +4,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
 import * as logFunctions from "../logFunctions";
-import { displayTitle, wikiUrl, wikitextToMarkdown } from "../core/wikitext";
+import { displayTitle, helpLinkTarget, wikiUrl, wikitextToMarkdown } from "../core/wikitext";
 import {
   helpKeys,
   keywordFromHelpFileName,
@@ -68,7 +68,13 @@ export class HelpService {
   getHoverHelp(token: string): HoverHelp | null {
     const live = this.findLive(token);
     if (live) {
-      return { markdown: live.markdown, baseUri: vscode.Uri.file(live.dir + path.sep) };
+      // Resolve `[X](X.md)` cross-page links against the built pages folder
+      // (populated by the "Build Help Pages" command) rather than the install's
+      // .txt source, so clicking a link opens the rendered page.
+      return {
+        markdown: live.markdown,
+        baseUri: vscode.Uri.file(this.pagesDir() + path.sep),
+      };
     }
     const bundled = this.findBundled(token);
     if (bundled) {
@@ -255,14 +261,66 @@ export class HelpService {
     return path.join(this.cacheDir, hash + ".md");
   }
 
-  /** Writes the converted page under a readable name for F1 to open. */
+  /** The folder holding rendered help pages (siblings, so `[X](X.md)` links resolve). */
+  private pagesDir(): string {
+    return path.join(this.cacheDir, "pages");
+  }
+
+  /**
+   * Writes the converted page under the same name its cross-page links use
+   * (`helpLinkTarget`), so links between built pages resolve. Returns the path.
+   */
   private writeDisplayCopy(name: string, markdown: string): string {
-    const safe = name.replace(/[\\/:*?"<>|]+/g, "-") || "help";
-    const dir = path.join(this.cacheDir, "pages");
-    const file = path.join(dir, safe + ".md");
+    const dir = this.pagesDir();
+    const file = path.join(dir, helpLinkTarget(name));
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(file, markdown, "utf8");
     return file;
+  }
+
+  /**
+   * Convert every installed help page to markdown once, into the pages folder,
+   * so cross-page links (in hovers and opened pages) all resolve — like the
+   * QB64PE IDE's "download help". Reports progress; returns how many were built.
+   */
+  async buildAllHelp(): Promise<number> {
+    const dir = this.helpDir();
+    if (!dir) {
+      vscode.window.showWarningMessage(
+        "QB64PE: no installed help found. Set qb64pe.installPath (or qb64pe.helpPath) to your QB64PE folder first."
+      );
+      return 0;
+    }
+    const out = this.pagesDir();
+    fs.mkdirSync(out, { recursive: true });
+    const style = this.styleHeader();
+    const files = fs.readdirSync(dir).filter((f) => f.toLowerCase().endsWith(".txt"));
+
+    return vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: "QB64PE: building help pages", cancellable: true },
+      async (progress, cancel) => {
+        let built = 0;
+        for (let i = 0; i < files.length; i++) {
+          if (cancel.isCancellationRequested) break;
+          const keyword = keywordFromHelpFileName(files[i]);
+          if (!keyword) continue;
+          try {
+            const wikitext = fs.readFileSync(path.join(dir, files[i]), "utf8");
+            const title = displayTitle(wikitext) ?? keyword;
+            const md = style + wikitextToMarkdown(wikitext, { title });
+            fs.writeFileSync(path.join(out, helpLinkTarget(title)), md, "utf8");
+            built++;
+          } catch (error) {
+            logFunctions.writeLine(`Build help failed for ${files[i]}: ${error}`, this.outputChannel);
+          }
+          if (i % 50 === 0) {
+            progress.report({ message: `${i}/${files.length}`, increment: (50 / files.length) * 100 });
+          }
+        }
+        vscode.window.showInformationMessage(`QB64PE: built ${built} help pages.`);
+        return built;
+      }
+    );
   }
 
   private readDisk(diskPath: string): string | null {
