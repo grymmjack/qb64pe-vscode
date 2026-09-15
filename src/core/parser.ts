@@ -32,6 +32,7 @@ interface Declaration {
 }
 
 interface Routine {
+  symbol: QB64Symbol;
   name: string;
   /** Lower-cased name without its type sigil, for return-value assignments. */
   base: string;
@@ -271,6 +272,7 @@ function handleStatement(
     return;
   }
   if (RE.endType.test(s)) {
+    if (state.type) state.type.endLine = line;
     state.type = null;
     return;
   }
@@ -316,6 +318,7 @@ function handleStatement(
       symbol.library = state.library;
     } else {
       state.routine = {
+        symbol,
         name,
         base: baseName(name),
         params: new Set(parameters.map((p) => p.name.toLowerCase())),
@@ -327,6 +330,7 @@ function handleStatement(
     return;
   }
   if (RE.endRoutine.test(s)) {
+    if (state.routine) state.routine.symbol.endLine = line;
     state.routine = null;
     return;
   }

@@ -35,6 +35,8 @@ export interface QB64Symbol {
   isExternal?: boolean; // declared inside DECLARE LIBRARY
   library?: string; // DECLARE LIBRARY name ("" when unnamed)
   isImplicit?: boolean; // variable created by first assignment / FOR, no DIM
+  endLine?: number; // SUB/FUNCTION/TYPE: line of the matching END …
+  isParameter?: boolean; // synthesized from a routine's parameter list; `parent` is the routine
 }
 
 export interface Parameter {

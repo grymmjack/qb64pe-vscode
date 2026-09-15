@@ -32,6 +32,8 @@ export type FileLoader = (file: string) => string | null;
 
 export interface IndexedFile {
   path: string;
+  /** The file's text, split into lines (what the symbols' line numbers index). */
+  lines: string[];
   symbols: QB64Symbol[];
   /** Raw `$INCLUDE` directives in source order. */
   includes: IncludeDirective[];
@@ -271,6 +273,7 @@ export class SymbolIndex {
     const parsed = parseFile(content, key);
     const entry: IndexedFile = {
       path: key,
+      lines: content.split(/\r?\n/),
       symbols: parsed.symbols,
       includes: parsed.includes,
       resolved: [],
