@@ -87,8 +87,13 @@ export class QB64DebugSession extends LoggingDebugSession {
   private currentSub = "";
   private callStack: CallStackFrame[] = [];
   private callStackReady = false;
-  /** A stackTrace response held until the call stack arrives. */
-  private pendingStackTrace?: DebugProtocol.StackTraceResponse;
+  /**
+   * stackTrace responses held until the call stack arrives. VS Code can issue
+   * several stackTrace requests before we have the frames (notably on a
+   * step-into), and every one must be answered or it tears down the session —
+   * so this is a queue, not a single slot.
+   */
+  private pendingStackTraces: DebugProtocol.StackTraceResponse[] = [];
 
   constructor(private readonly index: SymbolIndex) {
     super("qb64pe-debug.txt");
@@ -268,16 +273,14 @@ export class QB64DebugSession extends LoggingDebugSession {
     if (this.callStackReady) {
       this.respondStackTrace(response);
     } else {
-      this.pendingStackTrace = response;
+      this.pendingStackTraces.push(response);
     }
   }
 
   private flushPendingStackTrace(): void {
-    if (this.pendingStackTrace) {
-      const response = this.pendingStackTrace;
-      this.pendingStackTrace = undefined;
-      this.respondStackTrace(response);
-    }
+    const pending = this.pendingStackTraces;
+    this.pendingStackTraces = [];
+    for (const response of pending) this.respondStackTrace(response);
   }
 
   private respondStackTrace(response: DebugProtocol.StackTraceResponse): void {

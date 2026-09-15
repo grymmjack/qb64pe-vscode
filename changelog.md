@@ -2,6 +2,10 @@
 
 All notable changes to the "QB64 PE" extension will be documented in this file.
 
+## 0.12.7
+
+- Debugger: fixed the session terminating on step-into. VS Code can send multiple stackTrace requests before the call stack arrives; the adapter held only the last one, leaving the earlier request unanswered so VS Code tore down the session. All pending stackTrace requests are now queued and answered.
+
 ## 0.12.6
 
 - Debugger: fixed the toolbar staying in the running state (step/continue greyed) after a step — stops now report allThreadsStopped so VS Code switches to the paused controls. Added DAP-request logging to the trace.
