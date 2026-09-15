@@ -2,6 +2,10 @@
 
 All notable changes to the "QB64 PE" extension will be documented in this file.
 
+## 0.18.0
+
+- Linting: **live diagnostics as you type**, on by default. The index-driven linter (undefined SUB calls & labels, duplicate definitions, never-read locals) now updates while you edit — not just on save — shown as squiggles and Problems-pane entries, with no compile needed. New rule: **unresolved `$INCLUDE`** files are flagged. Toggle with `qb64pe.isIndexDiagnosticsEnabled`; the compiler lint (Ctrl+Alt+L) is unchanged and complementary.
+
 ## 0.17.1
 
 - Debugger: keyword hover help (and symbol hovers) now keep working while debugging. Previously, hovering a keyword like PAINT during a debug session showed "<not in scope>" from the debugger, which overrode the normal hover. The debugger now defers to the language hover when the hovered word is not a debuggable value.

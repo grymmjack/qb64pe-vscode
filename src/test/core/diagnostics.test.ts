@@ -90,4 +90,13 @@ describe("core/diagnostics", () => {
     assert.deepStrictEqual(deep, []); // `UtilHelper seed` is defined in util.bm
     assert.deepStrictEqual(check(["TYPE V", "  x AS SINGLE", "END TYPE", "DECLARE LIBRARY", "  SUB Ext (BYVAL a AS LONG)", "END DECLARE", "Ext 1"]), []);
   });
+
+  it("flags an $INCLUDE whose file cannot be resolved", () => {
+    const missing = check(["'$INCLUDE:'does_not_exist.bi'"]).filter((d) =>
+      d.includes("missing-include")
+    );
+    assert.strictEqual(missing.length, 1);
+    assert.ok(missing[0].startsWith("0:missing-include:warning:"));
+    assert.ok(missing[0].includes("does_not_exist.bi"));
+  });
 });
