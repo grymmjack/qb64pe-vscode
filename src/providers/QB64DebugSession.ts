@@ -98,6 +98,12 @@ export class QB64DebugSession extends LoggingDebugSession {
 
   // ---- DAP lifecycle -------------------------------------------------------
 
+  /** Log every incoming DAP request so we can see the VS Code ↔ adapter flow. */
+  protected dispatchRequest(request: DebugProtocol.Request): void {
+    if (this.isTracing()) this.output(`  [dap] ${request.command}\n`);
+    super.dispatchRequest(request);
+  }
+
   protected initializeRequest(
     response: DebugProtocol.InitializeResponse,
     _args: DebugProtocol.InitializeRequestArguments
@@ -632,7 +638,11 @@ export class QB64DebugSession extends LoggingDebugSession {
     // The debuggee already sends "current sub" with every stop, so only the
     // call stack needs requesting (while it is polling in its main loop).
     this.send(VWatchOut.CallStack);
-    this.sendEvent(new StoppedEvent(reason, THREAD_ID));
+    const stopped = new StoppedEvent(reason, THREAD_ID);
+    // Single-thread program: mark all threads stopped so VS Code reliably
+    // switches the toolbar to the paused state (continue/step enabled).
+    (stopped.body as DebugProtocol.StoppedEvent["body"]).allThreadsStopped = true;
+    this.sendEvent(stopped);
   }
 
   /** Every breakpoint line across files (M1: effectively the main file). */
