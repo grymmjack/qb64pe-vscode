@@ -176,6 +176,16 @@ describe("core/queries", () => {
     it("returns nothing for keywords", () => {
       assert.deepStrictEqual(findDefinition(index, BASICS, at(index, BASICS, "PRINT Add")), []);
     });
+
+    it("finds parameters declared on a continued header line", () => {
+      const use = at(index, EDGE, "area = width * height", "area = width * ".length);
+      const [def] = findDefinition(index, EDGE, use);
+      const headerLine = lineOf(EDGE, "SUB Configure");
+      assert.strictEqual(def.range.start.line, headerLine + 1);
+      assert.strictEqual(def.range.start.character, index.get(EDGE)!.lines[headerLine + 1].indexOf("height"));
+      const height = resolveAt(index, EDGE, use)!.symbol;
+      assert.deepStrictEqual(findOccurrences(index, height).map((o) => o.kind), ["declaration", "read"]);
+    });
   });
 
   describe("findOccurrences", () => {

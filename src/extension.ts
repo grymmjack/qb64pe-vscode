@@ -9,6 +9,7 @@ import * as logFunctions from "./logFunctions";
 import * as commonFunctions from "./commonFunctions";
 import * as webViewFunctions from "./webViewFunctions";
 import * as openInQB64PEFunctions from "./openInQB64PEFunctions";
+import * as todoFunctions from "./todoFunctions";
 import * as path from "path";
 import { TokenInfo } from "./TokenInfo";
 import { ReferenceProvider } from "./providers/ReferenceProvider";
@@ -132,7 +133,7 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.languages.registerDocumentSymbolProvider(
       documentSelector,
-      new DocumentSymbolProvider()
+      new DocumentSymbolProvider(workspaceIndex)
     )
   );
   context.subscriptions.push(
@@ -194,6 +195,7 @@ export async function activate(context: vscode.ExtensionContext) {
   vscode.commands.registerCommand("extension.refreshTodo", () =>
     todoTreeProvider.refresh()
   );
+  todoFunctions.setupTodoTracking(context, todoTreeProvider);
 }
 
 /**

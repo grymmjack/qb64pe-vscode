@@ -29,6 +29,7 @@ import {
 import {
   Identifier,
   LineScan,
+  hasLineContinuation,
   identifierAt,
   identifiersIn,
   scanLine,
@@ -369,19 +370,28 @@ export function resolveAt(
   return { file: key, word: id.word, range, chain, symbol: candidates[0] ?? null, candidates };
 }
 
-/** Where `symbol` is declared, with the exact range of its name. */
+/**
+ * Where `symbol` is declared, with the exact range of its name. Declarations
+ * may span physical lines (`_` continuation), so the search follows the
+ * logical line; a parameter is looked for after its routine's name.
+ */
 export function declarationOf(index: SymbolIndex, symbol: QB64Symbol): Occurrence {
-  const text = index.get(symbol.file)?.lines[symbol.line] ?? "";
-  let ids = identifiersIn(text);
-  if (symbol.isParameter && symbol.parent) {
-    const header = ids.findIndex((i) => nameEq(i.word, symbol.parent!));
-    ids = ids.slice(header + 1);
+  const lines = index.get(symbol.file)?.lines ?? [];
+  let afterRoutineName = !!(symbol.isParameter && symbol.parent);
+  for (let ln = symbol.line; ln < lines.length; ln++) {
+    const text = lines[ln];
+    let ids = identifiersIn(text);
+    if (afterRoutineName) {
+      const header = ids.findIndex((i) => nameEq(i.word, symbol.parent!));
+      ids = header >= 0 ? ids.slice(header + 1) : [];
+      afterRoutineName = false;
+    }
+    const target = ids.find((i) => nameEq(i.word, symbol.name));
+    if (target) return { file: symbol.file, range: rangeOf(ln, target), kind: "declaration" };
+    if (!hasLineContinuation(text)) break;
   }
-  const target = ids.find((i) => nameEq(i.word, symbol.name));
-  const range = target
-    ? rangeOf(symbol.line, target)
-    : { start: { line: symbol.line, character: 0 }, end: { line: symbol.line, character: 0 } };
-  return { file: symbol.file, range, kind: "declaration" };
+  const at = { line: symbol.line, character: 0 };
+  return { file: symbol.file, range: { start: at, end: at }, kind: "declaration" };
 }
 
 export function findDefinition(
@@ -421,6 +431,7 @@ export function findOccurrences(
   }
 
   const needle = normalizeBase(symbol.name);
+  const declaration = declarationOf(index, symbol).range;
   const out: Occurrence[] = [];
 
   for (const f of files) {
@@ -432,15 +443,13 @@ export function findOccurrences(
       if (!text || !text.toLowerCase().includes(needle)) continue;
 
       const scan = scanLine(text);
-      let declarationSeen = false;
       for (const id of identifiersIn(text, scan)) {
         if (!matchesName(id.word, symbol)) continue;
         const res = resolveAt(index, f, { line: ln, character: id.start });
         if (!res?.symbol || !sameSymbol(res.symbol, symbol)) continue;
 
         let kind: OccurrenceKind;
-        if (f === key && ln === symbol.line && !declarationSeen) {
-          declarationSeen = true;
+        if (f === key && ln === declaration.start.line && id.start === declaration.start.character) {
           kind = "declaration";
           if (!includeDeclaration) continue;
         } else {
