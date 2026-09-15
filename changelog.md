@@ -2,6 +2,10 @@
 
 All notable changes to the "QB64 PE" extension will be documented in this file.
 
+## 0.20.2
+
+- Debugger: sturdier first run on Windows/macOS — the produced executable is now found even when the compiler names it unexpectedly (falls back to scanning the build folder), and the connect-timeout message now points at the usual causes (missing , busy port, Windows firewall, or a too-short timeout on huge programs).
+
 ## 0.20.1
 
 - Linting: log each index-diagnostics pass (file → problem count) to the QB64PE lint output channel, to help diagnose "no problems shown" reports.
