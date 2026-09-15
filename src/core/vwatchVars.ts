@@ -37,6 +37,9 @@ export interface ResolvedVar {
   /** Byte size to request. */
   size: number;
   isArray: boolean;
+  /** A user-defined TYPE variable (the compiler names these `__UDT_<NAME>`); the
+   * actual TYPE is resolved from the symbol index, not the C name. */
+  isUDT?: boolean;
 }
 
 /** The compiler-name token for each type, longest first so matching is greedy. */
@@ -110,6 +113,13 @@ function resolveRemainder(index: number, remainder: string): ResolvedVar | null 
   if (remainder.startsWith("ARRAY_")) {
     isArray = true;
     remainder = remainder.slice("ARRAY_".length);
+  }
+  // User-defined TYPE variables are named `UDT_<NAME>`; the concrete type is
+  // recovered from the symbol index by the caller.
+  if (remainder.startsWith("UDT_")) {
+    const name = remainder.slice("UDT_".length);
+    if (!name) return null;
+    return { index, name, varType: "UDT", size: 0, isArray, isUDT: true };
   }
   for (const t of TYPE_TOKENS) {
     if (remainder.startsWith(t.token + "_")) {

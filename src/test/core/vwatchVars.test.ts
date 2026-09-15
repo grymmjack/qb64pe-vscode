@@ -77,4 +77,12 @@ describe("core/vwatchVars", () => {
   it("parses local slots regardless of routine", () => {
     assert.strictEqual(parseLocalSlots(localC).length, 3);
   });
+
+  it("flags UDT variables (type resolved elsewhere)", () => {
+    const vars = resolveGlobals("vwatch_global_vars[0] = &__UDT_P;");
+    assert.strictEqual(vars.length, 1);
+    assert.strictEqual(vars[0].name, "P");
+    assert.strictEqual(vars[0].isUDT, true);
+    assert.strictEqual(vars[0].isArray, false);
+  });
 });

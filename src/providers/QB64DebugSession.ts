@@ -20,6 +20,7 @@ import {
 import { DebugProtocol } from "@vscode/debugprotocol";
 import { SymbolIndex, normalizeBase } from "../core/index";
 import { symbolsInScope } from "../core/queries";
+import { QB64Symbol } from "../core/symbols";
 import {
   FrameReader,
   encode,
@@ -44,6 +45,52 @@ interface VarBatch {
   vars: DebugProtocol.Variable[];
   settled: boolean;
 }
+
+/** What a DAP variablesReference points at. */
+type RefTarget =
+  | { kind: "locals" }
+  | { kind: "globals" }
+  | { kind: "constants" }
+  | {
+      kind: "udt";
+      typeName: string;
+      localIndex: number;
+      isLocal: boolean;
+      scope: string;
+      baseOffset: number;
+    };
+
+interface UdtField {
+  name: string;
+  sendType: string;
+  size: number | null; // null when the field's size is unknown (breaks offsets)
+  offset: number; // NaN once an unknown field precedes it
+  isArray: boolean;
+  isUDT: boolean;
+  udtType?: string;
+}
+
+interface UdtLayout {
+  fields: UdtField[];
+  size: number; // NaN if any member size is unknown
+}
+
+/** QB64 scalar type -> {send name, byte size}. Packed, no alignment. */
+const SCALAR_SIZES: Record<string, { sendType: string; size: number }> = {
+  "_BYTE": { sendType: "_BYTE", size: 1 },
+  "_UNSIGNED _BYTE": { sendType: "_UNSIGNED _BYTE", size: 1 },
+  "INTEGER": { sendType: "INTEGER", size: 2 },
+  "_UNSIGNED INTEGER": { sendType: "_UNSIGNED INTEGER", size: 2 },
+  "LONG": { sendType: "LONG", size: 4 },
+  "_UNSIGNED LONG": { sendType: "_UNSIGNED LONG", size: 4 },
+  "_INTEGER64": { sendType: "_INTEGER64", size: 8 },
+  "_UNSIGNED _INTEGER64": { sendType: "_UNSIGNED _INTEGER64", size: 8 },
+  "SINGLE": { sendType: "SINGLE", size: 4 },
+  "DOUBLE": { sendType: "DOUBLE", size: 8 },
+  "_FLOAT": { sendType: "_FLOAT", size: 32 },
+  "_OFFSET": { sendType: "_OFFSET", size: 8 },
+  "_UNSIGNED _OFFSET": { sendType: "_UNSIGNED _OFFSET", size: 8 },
+};
 
 interface QB64LaunchArguments
   extends DebugProtocol.LaunchRequestArguments {
@@ -401,13 +448,20 @@ export class QB64DebugSession extends LoggingDebugSession {
   // reply. Requests are async, so a variablesResponse is held until its replies
   // arrive (or a short timeout). Arrays and UDTs are listed but not yet read.
 
-  private readonly scopeHandles = new Handles<"locals" | "globals" | "constants">();
+  private readonly refs = new Handles<RefTarget>();
   private varSeq = 0;
   /** tempIndex -> the pending get-var it belongs to. */
   private readonly varPending = new Map<
     number,
-    { batch: VarBatch; name: string; varType: string }
+    { batch: VarBatch; name: string; varType: string; ref?: number }
   >();
+  private readonly evalPending = new Map<
+    number,
+    { response: DebugProtocol.EvaluateResponse; varType: string }
+  >();
+  /** UPPER type name -> TYPE symbol (built lazily from the index). */
+  private typeByName?: Map<string, QB64Symbol>;
+  private readonly udtLayoutCache = new Map<string, UdtLayout | null>();
 
   protected scopesRequest(
     response: DebugProtocol.ScopesResponse,
@@ -415,9 +469,9 @@ export class QB64DebugSession extends LoggingDebugSession {
   ): void {
     response.body = {
       scopes: [
-        new Scope("Locals", this.scopeHandles.create("locals"), false),
-        new Scope("Module & Globals", this.scopeHandles.create("globals"), false),
-        new Scope("Constants", this.scopeHandles.create("constants"), false),
+        new Scope("Locals", this.refs.create({ kind: "locals" }), false),
+        new Scope("Module & Globals", this.refs.create({ kind: "globals" }), false),
+        new Scope("Constants", this.refs.create({ kind: "constants" }), false),
       ],
     };
     this.sendResponse(response);
@@ -427,53 +481,141 @@ export class QB64DebugSession extends LoggingDebugSession {
     response: DebugProtocol.VariablesResponse,
     args: DebugProtocol.VariablesArguments
   ): void {
-    const kind = this.scopeHandles.get(args.variablesReference);
+    const target = this.refs.get(args.variablesReference);
 
-    if (kind === "constants") {
+    if (!target || target.kind === "constants") {
       response.body = { variables: this.constantVariables() };
       this.sendResponse(response);
       return;
     }
 
-    const isLocal = kind === "locals";
-    const vars = isLocal ? this.currentLocalVars() : this.globals;
-
-    // Arrays and UDTs need index/offset handling that is not wired yet; list
-    // them with a placeholder and request live values only for scalars.
-    const placeholders: DebugProtocol.Variable[] = [];
-    const scalars: ResolvedVar[] = [];
-    for (const v of vars) {
-      if (v.isArray) {
-        placeholders.push({
-          name: v.name,
-          value: `<array of ${v.varType}>`,
-          variablesReference: 0,
-        });
-      } else {
-        scalars.push(v);
-      }
-    }
-
-    if (!this.socket || scalars.length === 0) {
-      response.body = { variables: placeholders };
-      this.sendResponse(response);
+    if (target.kind === "udt") {
+      this.expandUdt(response, target);
       return;
     }
 
-    const batch: VarBatch = {
-      response,
-      remaining: scalars.length,
-      vars: placeholders,
-      settled: false,
-    };
+    // A scope: list its variables (scalars read live, UDTs expandable).
+    const isLocal = target.kind === "locals";
+    const vars = isLocal ? this.currentLocalVars() : this.globals;
     const scope = isLocal ? this.currentSub : "";
-    for (const v of scalars) {
-      const tempIndex = ++this.varSeq;
-      this.varPending.set(tempIndex, { batch, name: v.name, varType: v.varType });
-      this.sendGetVar(isLocal, tempIndex, scope, v);
+
+    const immediate: DebugProtocol.Variable[] = [];
+    const batch: VarBatch = { response, remaining: 0, vars: immediate, settled: false };
+
+    for (const v of vars) {
+      if (v.isUDT && !v.isArray) {
+        const typeName = this.udtTypeOf(v.name);
+        const ref = typeName
+          ? this.refs.create({
+              kind: "udt",
+              typeName,
+              localIndex: v.index,
+              isLocal,
+              scope,
+              baseOffset: 0,
+            })
+          : 0;
+        immediate.push({
+          name: v.name,
+          value: typeName ? `{${typeName}}` : "<UDT>",
+          variablesReference: ref,
+        });
+      } else if (v.isArray) {
+        immediate.push({
+          name: v.name + "()",
+          value: `<array of ${v.isUDT ? "TYPE" : v.varType}> — Watch ${v.name}(index)`,
+          variablesReference: 0,
+        });
+      } else {
+        this.requestScalar(batch, isLocal, scope, v.index, 0, 0, v.varType, v.size, v.name);
+      }
     }
-    // Defensive: settle even if some replies never arrive.
-    setTimeout(() => this.settleVarBatch(batch), 600);
+
+    if (batch.remaining === 0) {
+      this.settleVarBatch(batch);
+    } else {
+      setTimeout(() => this.settleVarBatch(batch), 700);
+    }
+  }
+
+  /** Expand a UDT variable/field into its members. */
+  private expandUdt(
+    response: DebugProtocol.VariablesResponse,
+    target: Extract<RefTarget, { kind: "udt" }>
+  ): void {
+    const layout = this.udtLayout(target.typeName);
+    const immediate: DebugProtocol.Variable[] = [];
+    const batch: VarBatch = { response, remaining: 0, vars: immediate, settled: false };
+
+    for (const f of layout?.fields ?? []) {
+      const offset = target.baseOffset + f.offset;
+      if (f.isArray || f.size === null || Number.isNaN(offset)) {
+        immediate.push({
+          name: f.name,
+          value: f.isArray ? "<array>" : "<?>",
+          variablesReference: 0,
+        });
+      } else if (f.isUDT && f.udtType) {
+        const ref = this.refs.create({
+          kind: "udt",
+          typeName: f.udtType,
+          localIndex: target.localIndex,
+          isLocal: target.isLocal,
+          scope: target.scope,
+          baseOffset: offset,
+        });
+        immediate.push({ name: f.name, value: `{${f.udtType}}`, variablesReference: ref });
+      } else {
+        this.requestScalar(
+          batch,
+          target.isLocal,
+          target.scope,
+          target.localIndex,
+          1, // element > 0 marks a UDT member
+          offset,
+          f.sendType,
+          f.size,
+          f.name
+        );
+      }
+    }
+
+    if (batch.remaining === 0) {
+      this.settleVarBatch(batch);
+    } else {
+      setTimeout(() => this.settleVarBatch(batch), 700);
+    }
+  }
+
+  /** Queue a get-var for one scalar/field value into a batch. */
+  private requestScalar(
+    batch: VarBatch,
+    isLocal: boolean,
+    scope: string,
+    localIndex: number,
+    element: number,
+    elementOffset: number,
+    varType: string,
+    varSize: number,
+    name: string
+  ): void {
+    if (!this.socket) {
+      batch.vars.push({ name, value: "<no session>", variablesReference: 0 });
+      return;
+    }
+    const tempIndex = ++this.varSeq;
+    batch.remaining += 1;
+    this.varPending.set(tempIndex, { batch, name, varType });
+    this.issueGetVar({
+      isLocal,
+      scope,
+      localIndex,
+      element,
+      elementOffset,
+      varType,
+      varSize,
+      tempIndex,
+    });
   }
 
   /** CONST symbols with their static values (always correct, no protocol). */
@@ -495,47 +637,57 @@ export class QB64DebugSession extends LoggingDebugSession {
   }
 
   /**
-   * Build and send a get-var request. Layout mirrors the QB64PE IDE
-   * (`ide_methods.bas`): a scalar has no array indexes, element or offset.
+   * Build and send a get-var request. Field order mirrors the QB64PE IDE
+   * (`ide_methods.bas`): tempIndex, isArray, dimLine, localIndex, array-indexes
+   * (length-prefixed), arrayElementSize, element, elementOffset, varSize,
+   * storage, scope, varType.
    */
-  private sendGetVar(
-    isLocal: boolean,
-    tempIndex: number,
-    scope: string,
-    v: ResolvedVar
-  ): void {
-    const scopeBuf = Buffer.from(scope, "latin1");
-    const typeBuf = Buffer.from(v.varType, "latin1");
+  private issueGetVar(o: {
+    isLocal: boolean;
+    scope: string;
+    localIndex: number;
+    isArray?: boolean;
+    arrayIndexes?: number[];
+    element?: number;
+    elementOffset?: number;
+    varType: string;
+    varSize: number;
+    tempIndex: number;
+  }): void {
+    const idxBuf =
+      o.arrayIndexes && o.arrayIndexes.length
+        ? Buffer.concat(o.arrayIndexes.map((n) => mkl(n)))
+        : Buffer.alloc(0);
+    const scopeBuf = Buffer.from(o.scope, "latin1");
+    const typeBuf = Buffer.from(o.varType, "latin1");
     const payload = Buffer.concat([
-      mkl(tempIndex), // our correlation tag
-      Buffer.from([0]), // isArray = 0
-      mkl(0), // originalVarLineNumber (unused for scalars)
-      mkl(v.index), // localIndex
-      mkl(0), // array-indexes length (none)
-      mkl(0), // arrayElementSize
-      mkl(0), // element
-      mkl(0), // elementOffset
-      mkl(v.size), // varSize
-      mkl(tempIndex), // storage (echoed back; reuse the tag)
+      mkl(o.tempIndex),
+      Buffer.from([o.isArray ? 1 : 0]),
+      mkl(0), // originalVarLineNumber (skip the pre-DIM guard)
+      mkl(o.localIndex),
+      mkl(idxBuf.length),
+      idxBuf,
+      mkl(0), // arrayElementSize (0 → stride = varSize, fine for scalar elements)
+      mkl(o.element ?? 0),
+      mkl(o.elementOffset ?? 0),
+      mkl(o.varSize),
+      mkl(o.tempIndex), // storage (echoed back; reuse the tag)
       mki(scopeBuf.length),
       scopeBuf,
       mki(typeBuf.length),
       typeBuf,
     ]);
-    this.send(isLocal ? VWatchOut.GetLocalVar : VWatchOut.GetGlobalVar, payload);
+    this.send(o.isLocal ? VWatchOut.GetLocalVar : VWatchOut.GetGlobalVar, payload);
   }
 
-  private onAddressRead(read: {
-    tempIndex: number;
-    bytes: Buffer;
-  }): void {
+  private onAddressRead(read: { tempIndex: number; bytes: Buffer }): void {
     const info = this.varPending.get(read.tempIndex);
     if (info) {
       this.varPending.delete(read.tempIndex);
       info.batch.vars.push({
         name: info.name,
         value: this.formatValue(info.varType, read.bytes),
-        variablesReference: 0,
+        variablesReference: info.ref ?? 0,
       });
       info.batch.remaining -= 1;
       if (info.batch.remaining <= 0) this.settleVarBatch(info.batch);
@@ -566,49 +718,234 @@ export class QB64DebugSession extends LoggingDebugSession {
     this.sendResponse(batch.response);
   }
 
-  private readonly evalPending = new Map<
-    number,
-    { response: DebugProtocol.EvaluateResponse; varType: string }
-  >();
+  // ---- type layout ---------------------------------------------------------
+
+  /** The TYPE name of a variable (from the symbol index), or undefined. */
+  private udtTypeOf(name: string): string | undefined {
+    const hit = this.index
+      .lookupBase(name)
+      .find((s) => s.type === "VARIABLE" && s.dataType);
+    const dt = hit?.dataType;
+    return dt && this.types().has(dt.toUpperCase()) ? dt : undefined;
+  }
+
+  private types(): Map<string, QB64Symbol> {
+    if (!this.typeByName) {
+      this.typeByName = new Map();
+      for (const s of this.index.allSymbols()) {
+        if (s.type === "TYPE") this.typeByName.set(s.name.toUpperCase(), s);
+      }
+    }
+    return this.typeByName;
+  }
+
+  /** Packed field layout of a TYPE (byte offsets), or null if unknown. */
+  private udtLayout(typeName: string): UdtLayout | null {
+    const key = typeName.toUpperCase();
+    const cached = this.udtLayoutCache.get(key);
+    if (cached !== undefined) return cached;
+    const sym = this.types().get(key);
+    if (!sym) {
+      this.udtLayoutCache.set(key, null);
+      return null;
+    }
+    const fields: UdtField[] = [];
+    let offset = 0;
+    for (const m of sym.members ?? []) {
+      const info = m.isArray ? null : this.memberInfo(m.dataType);
+      const size = info ? info.size : null;
+      fields.push({
+        name: m.name,
+        sendType: info?.sendType ?? "",
+        size,
+        offset,
+        isArray: !!m.isArray,
+        isUDT: !!info?.isUDT,
+        udtType: info?.udtType,
+      });
+      offset = size === null ? NaN : offset + size;
+    }
+    const layout: UdtLayout = { fields, size: offset };
+    this.udtLayoutCache.set(key, layout);
+    return layout;
+  }
+
+  /** How to request a TYPE member of the given declared type. */
+  private memberInfo(
+    dataType: string | undefined
+  ): { sendType: string; size: number; isUDT?: boolean; udtType?: string } | null {
+    if (!dataType) return null;
+    const t = dataType.trim();
+    const fixed = /^STRING\s*\*\s*(\d+)$/i.exec(t);
+    if (fixed) return { sendType: `STRING * ${fixed[1]}`, size: parseInt(fixed[1], 10) };
+    const scalar = SCALAR_SIZES[t.toUpperCase()];
+    if (scalar) return { sendType: scalar.sendType, size: scalar.size };
+    const nested = this.udtLayout(t);
+    if (nested && !Number.isNaN(nested.size)) {
+      return { sendType: "UDT", size: nested.size, isUDT: true, udtType: t };
+    }
+    return null; // variable-length STRING in a UDT, or unknown
+  }
+
+  // ---- evaluate (Watch / hover) --------------------------------------------
 
   protected evaluateRequest(
     response: DebugProtocol.EvaluateResponse,
     args: DebugProtocol.EvaluateArguments
   ): void {
-    const name = (args.expression || "").trim();
-    const upper = name.replace(/[%&!#$~]+$/, "").toUpperCase(); // drop a sigil
+    const expr = (args.expression || "").trim();
 
+    // Array element:  name(i)  or  name(i, j)
+    const arr = /^([A-Za-z_][A-Za-z0-9_]*)[%&!#$~]?\s*\(([^)]*)\)$/.exec(expr);
+    if (arr) {
+      this.evaluateArray(response, arr[1], arr[2]);
+      return;
+    }
+
+    // Member path:  name.field.field
+    if (expr.includes(".")) {
+      this.evaluateMember(response, expr);
+      return;
+    }
+
+    const upper = expr.replace(/[%&!#$~]+$/, "").toUpperCase();
     // Constants resolve statically.
     const constHit = this.index
-      .lookupBase(normalizeBase(name))
+      .lookupBase(normalizeBase(expr))
       .find((s) => s.type === "CONST");
     if (constHit?.value !== undefined) {
-      response.body = { result: constHit.value, variablesReference: 0 };
-      this.sendResponse(response);
+      this.reply(response, constHit.value);
       return;
     }
 
-    // Otherwise find the variable in the manifest and read it live.
-    const local = this.currentLocalVars().find((v) => v.name === upper);
-    const global = this.globals.find((v) => v.name === upper);
-    const target = local ?? global;
-    if (this.socket && target && !target.isArray) {
-      const tempIndex = ++this.varSeq;
-      this.evalPending.set(tempIndex, { response, varType: target.varType });
-      this.sendGetVar(!!local, tempIndex, local ? this.currentSub : "", target);
-      setTimeout(() => {
-        if (this.evalPending.delete(tempIndex)) {
-          response.body = { result: "<no reply>", variablesReference: 0 };
-          this.sendResponse(response);
+    const found = this.findVar(upper);
+    if (found && !found.v.isArray && !found.v.isUDT) {
+      this.evalGetVar(response, found.isLocal, {
+        localIndex: found.v.index,
+        varType: found.v.varType,
+        varSize: found.v.size,
+      });
+      return;
+    }
+    this.reply(
+      response,
+      found?.v.isArray ? "<use name(index)>" : found?.v.isUDT ? "<use name.field>" : "<not in scope>"
+    );
+  }
+
+  private evaluateArray(
+    response: DebugProtocol.EvaluateResponse,
+    name: string,
+    indexText: string
+  ): void {
+    const found = this.findVar(name.toUpperCase());
+    const indexes = indexText
+      .split(",")
+      .map((s) => parseInt(s.trim(), 10))
+      .filter((n) => !Number.isNaN(n));
+    if (!found || !found.v.isArray || found.v.isUDT || indexes.length === 0) {
+      this.reply(response, "<no such array element>");
+      return;
+    }
+    this.evalGetVar(response, found.isLocal, {
+      localIndex: found.v.index,
+      varType: found.v.varType,
+      varSize: found.v.size,
+      isArray: true,
+      arrayIndexes: indexes,
+    });
+  }
+
+  private evaluateMember(
+    response: DebugProtocol.EvaluateResponse,
+    expr: string
+  ): void {
+    const parts = expr.split(".");
+    const base = this.findVar(parts[0].replace(/[%&!#$~]+$/, "").toUpperCase());
+    if (!base || !base.v.isUDT) {
+      this.reply(response, "<not a TYPE variable>");
+      return;
+    }
+    let typeName = this.udtTypeOf(base.v.name);
+    let offset = 0;
+    let leaf: { sendType: string; size: number } | null = null;
+    for (let i = 1; i < parts.length && typeName; i++) {
+      const layout = this.udtLayout(typeName);
+      const field = layout?.fields.find(
+        (f) => f.name.toUpperCase() === parts[i].toUpperCase()
+      );
+      if (!field || field.size === null || Number.isNaN(offset)) {
+        this.reply(response, "<no such field>");
+        return;
+      }
+      offset += field.offset;
+      if (i === parts.length - 1) {
+        if (field.isUDT) {
+          this.reply(response, `{${field.udtType}}`);
+          return;
         }
-      }, 600);
+        leaf = { sendType: field.sendType, size: field.size };
+      } else {
+        typeName = field.udtType;
+      }
+    }
+    if (!leaf) {
+      this.reply(response, "<no such field>");
       return;
     }
+    this.evalGetVar(response, base.isLocal, {
+      localIndex: base.v.index,
+      varType: leaf.sendType,
+      varSize: leaf.size,
+      element: 1,
+      elementOffset: offset,
+    });
+  }
 
-    response.body = {
-      result: target?.isArray ? "<array>" : "<not in scope>",
-      variablesReference: 0,
-    };
+  /** Find a variable by (upper-case) name in locals first, then globals. */
+  private findVar(upper: string): { v: ResolvedVar; isLocal: boolean } | undefined {
+    const local = this.currentLocalVars().find((v) => v.name === upper);
+    if (local) return { v: local, isLocal: true };
+    const global = this.globals.find((v) => v.name === upper);
+    if (global) return { v: global, isLocal: false };
+    return undefined;
+  }
+
+  /** Issue a get-var and answer an evaluate response when it replies. */
+  private evalGetVar(
+    response: DebugProtocol.EvaluateResponse,
+    isLocal: boolean,
+    o: {
+      localIndex: number;
+      varType: string;
+      varSize: number;
+      isArray?: boolean;
+      arrayIndexes?: number[];
+      element?: number;
+      elementOffset?: number;
+    }
+  ): void {
+    if (!this.socket) {
+      this.reply(response, "<no session>");
+      return;
+    }
+    const tempIndex = ++this.varSeq;
+    this.evalPending.set(tempIndex, { response, varType: o.varType });
+    this.issueGetVar({
+      isLocal,
+      scope: isLocal ? this.currentSub : "",
+      tempIndex,
+      ...o,
+    });
+    setTimeout(() => {
+      if (this.evalPending.delete(tempIndex)) {
+        this.reply(response, "<no reply>");
+      }
+    }, 700);
+  }
+
+  private reply(response: DebugProtocol.EvaluateResponse, result: string): void {
+    response.body = { result, variablesReference: 0 };
     this.sendResponse(response);
   }
 
@@ -835,6 +1172,7 @@ export class QB64DebugSession extends LoggingDebugSession {
     this.currentLine = line;
     this.callStackReady = false;
     this.callStack = [];
+    this.refs.reset(); // variable references are per-stop
     // The debuggee already sends "current sub" with every stop, so only the
     // call stack needs requesting (while it is polling in its main loop).
     this.send(VWatchOut.CallStack);
