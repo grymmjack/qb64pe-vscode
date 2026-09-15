@@ -18,6 +18,8 @@ A VSCode extension that adds support for [QB64 PE](https://www.qb64phoenix.com).
   - Go to Symbol in Workspace (`Ctrl+T`)
   - Block-aware code folding (SUB/FUNCTION, TYPE, IF, SELECT, DO, FOR, WHILE, `$IF`, comment blocks)
   - Semantic highlighting of user-defined routines, types, variables, parameters, fields and labels
+  - Call Hierarchy (Show Call Hierarchy / Peek Call Hierarchy) for SUBs and FUNCTIONs
+  - Optional diagnostics without compiling (`qb64pe.isIndexDiagnosticsEnabled`): undefined SUB calls and labels, duplicate definitions, never-read locals
 - **Intelligent Code Completion**: 500+ QB64PE keywords (all modern underscore-prefixed functions) plus everything you defined that is in scope — ranked first — and **member completion** (`variable.` lists the fields of its TYPE)
 - **Hover & signature help** for your own SUBs/FUNCTIONs (declaration, doc comments, parameters, return type, TYPE members) and for built-in keywords via the offline wiki
 - **Inline Code Templates**: multi-line completions for game loops, graphics setup, input handling, and more

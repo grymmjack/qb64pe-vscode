@@ -133,6 +133,17 @@ describe("QB64PE providers (extension host)", function () {
     assert.ok(ranges.some((r) => r.start === line(basics, "SUB InitGame") && r.end === line(basics, "END SUB") - 1));
   });
 
+  it("call hierarchy", async () => {
+    const [item] = await vscode.commands.executeCommand<vscode.CallHierarchyItem[]>(
+      "vscode.prepareCallHierarchy", basics.uri, pos(basics, "FUNCTION Add", 9));
+    assert.strictEqual(item.name, "Add");
+    const incoming = await vscode.commands.executeCommand<vscode.CallHierarchyIncomingCall[]>(
+      "vscode.provideIncomingCalls", item);
+    assert.strictEqual(incoming.length, 1);
+    assert.strictEqual(incoming[0].from.name, "basics.bas"); // module-level PRINT Add(1, 2)
+    assert.strictEqual(incoming[0].fromRanges[0].start.line, line(basics, "PRINT Add(1, 2)"));
+  });
+
   it("semantic tokens", async () => {
     const tokens = await vscode.commands.executeCommand<vscode.SemanticTokens>(
       "vscode.provideDocumentSemanticTokens", basics.uri);

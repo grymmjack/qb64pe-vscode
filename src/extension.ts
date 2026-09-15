@@ -26,6 +26,7 @@ import { DocumentHighlightProvider } from "./providers/DocumentHighlightProvider
 import { WorkspaceSymbolProvider } from "./providers/WorkspaceSymbolProvider";
 import { FoldingRangeProvider } from "./providers/FoldingRangeProvider";
 import { IndexDiagnostics } from "./providers/IndexDiagnostics";
+import { CallHierarchyProvider } from "./providers/CallHierarchyProvider";
 import {
   SemanticTokensProvider,
   semanticTokensLegend,
@@ -217,6 +218,12 @@ export async function activate(context: vscode.ExtensionContext) {
     )
   );
 
+  context.subscriptions.push(
+    vscode.languages.registerCallHierarchyProvider(
+      documentSelector,
+      new CallHierarchyProvider(workspaceIndex)
+    )
+  );
   context.subscriptions.push(new IndexDiagnostics(workspaceIndex));
 
   // Register Miscellaneous

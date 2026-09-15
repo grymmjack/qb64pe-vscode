@@ -13,6 +13,8 @@ All notable changes to the "QB64 PE" extension will be documented in this file.
   - Go to Symbol in Workspace (`Ctrl+T`) for SUB/FUNCTION/TYPE/CONST.
   - Block-aware folding: SUB/FUNCTION, TYPE, DECLARE LIBRARY, `IF…END IF`, `SELECT…END SELECT`, `DO…LOOP`, `FOR…NEXT`, `WHILE…WEND`, `$IF…$END IF` and comment blocks.
   - Semantic highlighting of user-defined routines, types, variables, parameters, fields and labels (declarations, reads and writes distinguished).
+  - Call Hierarchy (incoming/outgoing calls) for SUBs and FUNCTIONs, across included files; module-level code appears as the file.
+  - Opt-in index diagnostics (`qb64pe.isIndexDiagnosticsEnabled`, off by default): undefined SUB calls and `GOTO`/`GOSUB` labels, duplicate SUB/FUNCTION/TYPE/CONST/label definitions, and never-read locals — no compile needed.
 - Completion
   - Member completion: typing `variable.` offers the fields of its TYPE (nested UDTs too).
   - In-scope user symbols are ranked first and win over same-named keywords; the list is complete so VS Code's fuzzy matching works; documentation loads lazily (faster activation).

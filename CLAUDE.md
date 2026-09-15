@@ -58,9 +58,11 @@ Two layers:
      → sigil-insensitive routine fallback → workspace), member chains (`a.b.c`),
      `findDefinition`, `findOccurrences` (re-resolves every hit; declaration/write/read),
      `symbolsInScope` (completion candidates), `memberContextAt`, `searchSymbols`.
-   - `outline.ts`, `folding.ts`, `semantic.ts`, `rename.ts`, `format.ts` — feature models
-     (outline tree, folding ranges, semantic tokens, rename edits, Markdown/labels) built on
-     the above.
+   - `outline.ts`, `folding.ts`, `semantic.ts`, `rename.ts`, `callHierarchy.ts`,
+     `diagnostics.ts`, `format.ts` — feature models (outline tree, folding ranges, semantic
+     tokens, rename edits, call hierarchy, opt-in diagnostics, Markdown/labels) built on the
+     above. `keywords.ts` holds the 774-entry keyword list (`isKeyword`) used by completion
+     and by the diagnostics to tell a built-in statement from a user SUB call.
 
 2. **`src/providers/` — thin VS Code adapters.** `WorkspaceSymbolIndex` owns the one
    `SymbolIndex` (workspace scan, debounced dirty-buffer indexing, file watcher, renames);
@@ -71,8 +73,7 @@ Two layers:
 
 Other pieces: `TokenInfo.ts` resolves **built-in keyword** help from the ~1050 offline wiki
 `.md` files in `help/` (case-insensitive, tries sigil/underscore variants; falls back to the
-online wiki). The 500+ keyword list for completion is hardcoded in
-`CompletionItemProvider.ts`; syntax highlighting is the TextMate grammar in `syntaxes/`
+online wiki). Syntax highlighting is the TextMate grammar in `syntaxes/`
 (semantic tokens only cover user-defined names, so the two do not fight). `lintFunctions.ts`
 shells out to the compiler and parses its output into diagnostics. `todoFunctions.ts` feeds
 the TODO view. `decoratorFunctions.ts` uses the index to bold routine names.
