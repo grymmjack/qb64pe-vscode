@@ -18,8 +18,17 @@ import {
   Handles,
 } from "@vscode/debugadapter";
 import { DebugProtocol } from "@vscode/debugprotocol";
-import { SymbolIndex, normalizeBase } from "../core/index";
-import { symbolsInScope } from "../core/queries";
+import {
+  SymbolIndex,
+  normalizeBase,
+  normalizePath,
+  createIncludeResolver,
+} from "../core/index";
+import {
+  flatten,
+  buildReverseMap,
+  LineOrigin,
+} from "../core/flatten";
 import { parseContent } from "../core/parser";
 import { QB64Symbol } from "../core/symbols";
 import {
@@ -151,6 +160,13 @@ export class QB64DebugSession extends LoggingDebugSession {
   private globals: ResolvedVar[] = [];
   private compilerPath = "";
 
+  /** Flattened-line → original (file, line), and the reverse map. */
+  private origins: LineOrigin[] = [];
+  private flatByFile = new Map<string, Map<number, number>>();
+  private flatText = ""; // the flattened source we compiled (for type parsing)
+  /** The source file of the current stop (may be an $INCLUDEd file). */
+  private currentFile = "";
+
   /** Breakpoints requested by VS Code, keyed by file path. */
   private readonly breakpoints = new Map<string, BpInfo[]>();
   /** Whether the handshake/`run` has been sent. */
@@ -232,9 +248,10 @@ export class QB64DebugSession extends LoggingDebugSession {
       return;
     }
 
-    // Ensure the source carries $DEBUG so the compiler instruments it. $DEBUG
-    // is a global toggle, so appending it to a temp copy does not shift the
-    // user's line numbers (keeping vwatch line == editor line).
+    // Flatten every $INCLUDE inline so the whole program compiles as one main
+    // module — the only way QB64PE instruments (and thus debugs) code that lives
+    // in .bi/.bm files. A line map translates flattened lines back to the real
+    // files. $DEBUG is appended (a global toggle) if the program lacks it.
     try {
       this.prepareCompiledProgram(args);
     } catch (e) {
@@ -242,8 +259,7 @@ export class QB64DebugSession extends LoggingDebugSession {
       return;
     }
 
-    const source = fs.readFileSync(this.program, "latin1");
-    this.lineCount = source.split(/\r?\n/).length + 1;
+    this.lineCount = this.origins.length + 2;
 
     // Host first, so the debuggee can connect the instant it starts.
     let port: number;
@@ -294,50 +310,42 @@ export class QB64DebugSession extends LoggingDebugSession {
   ): void {
     const file = args.source.path ?? "";
     const requested = args.breakpoints ?? [];
-    const isMain = this.isMainFile(file);
+    const key = normalizePath(file);
 
-    // vwatch only instruments the main module's lines: breakpoints inside
-    // $INCLUDE files can never bind, so report them unverified with a reason
-    // rather than letting them silently fail to hit.
-    if (isMain) {
-      this.breakpoints.set(
-        file,
-        requested.map((b) => ({
+    // A breakpoint binds if its line maps into the flattened program (which now
+    // includes every $INCLUDEd file). Lines with no mapping (blank, or a file
+    // not part of this program) are reported unverified.
+    this.breakpoints.set(
+      key,
+      requested
+        .filter((b) => this.toFlat(file, b.line) !== undefined)
+        .map((b) => ({
           line: b.line,
           condition: b.condition,
           hitCondition: b.hitCondition,
           hits: 0,
         }))
-      );
-      if (this.launched && this.socket) {
-        this.send(VWatchOut.ClearAllBreakpoints);
-        for (const line of this.allBreakpointLines()) {
-          this.send(VWatchOut.SetBreakpoint, mkl(line));
-        }
+    );
+    if (this.launched && this.socket) {
+      this.send(VWatchOut.ClearAllBreakpoints);
+      for (const line of this.allBreakpointLines()) {
+        this.send(VWatchOut.SetBreakpoint, mkl(line));
       }
-    } else {
-      this.breakpoints.delete(file);
     }
 
     response.body = {
-      breakpoints: requested.map((b) =>
-        isMain
+      breakpoints: requested.map((b) => {
+        const flat = this.toFlat(file, b.line);
+        return flat !== undefined
           ? { verified: true, line: b.line }
           : {
               verified: false,
               line: b.line,
-              message:
-                "QB64PE only stops on lines in the main module; this file is $INCLUDEd.",
-            }
-      ),
+              message: "This line is not part of the compiled program.",
+            };
+      }),
     };
     this.sendResponse(response);
-  }
-
-  /** True when `file` is the program being debugged (the main module). */
-  private isMainFile(file: string): boolean {
-    if (!file) return false;
-    return path.resolve(file) === path.resolve(this.program);
   }
 
   protected configurationDoneRequest(
@@ -392,41 +400,28 @@ export class QB64DebugSession extends LoggingDebugSession {
         new StackFrame(
           0,
           this.currentSub || "(main)",
-          this.sourceFor(this.program),
+          this.sourceFor(this.currentFile || this.program),
           this.currentLine
         ),
       ];
     }
     const innermostFirst = [...this.callStack].reverse();
     return innermostFirst.map((frame, i) => {
-      // Routines defined in an $INCLUDE carry the include file+line; otherwise
-      // resolve the routine's declaring file via the symbol index.
-      const inc = frame.includeFile
-        ? this.resolveIncludeFile(frame.includeFile)
-        : undefined;
-      const loc = inc ? undefined : this.routineLocation(frame.sub);
-      const file = inc ?? loc?.file ?? this.program;
-      // Frame 0 is the live position; use the exact stop line for it.
-      const line =
-        i === 0
-          ? this.currentLine
-          : frame.line ?? frame.includeLine ?? loc?.line ?? 0;
-      return new StackFrame(
-        i,
-        frame.sub || "(main)",
-        this.sourceFor(file),
-        line
-      );
+      // Frame 0 is the live position; deeper frames report a flattened line,
+      // which the line map turns back into the real (file, line).
+      if (i === 0) {
+        return new StackFrame(
+          0,
+          frame.sub || this.currentSub || "(main)",
+          this.sourceFor(this.currentFile || this.program),
+          this.currentLine
+        );
+      }
+      const origin = frame.line ? this.fromFlat(frame.line) : undefined;
+      const file = origin?.file ?? this.program;
+      const line = origin?.line ?? frame.line ?? 0;
+      return new StackFrame(i, frame.sub || "(main)", this.sourceFor(file), line);
     });
-  }
-
-  /** Resolve a bare include file name to a path in the program's include graph. */
-  private resolveIncludeFile(name: string): string | undefined {
-    const target = path.basename(name).toLowerCase();
-    for (const file of this.index.closure(this.program)) {
-      if (path.basename(file).toLowerCase() === target) return file;
-    }
-    return undefined;
   }
 
   // ---- variable manifest (M3) ----------------------------------------------
@@ -644,8 +639,14 @@ export class QB64DebugSession extends LoggingDebugSession {
 
   /** CONST symbols with their static values (always correct, no protocol). */
   private constantVariables(): DebugProtocol.Variable[] {
-    const consts = symbolsInScope(this.index, this.program, this.currentLine - 1)
-      .filter((s) => s.type === "CONST");
+    const seen = new Set<string>();
+    const consts = this.programSyms().filter((s) => {
+      if (s.type !== "CONST") return false;
+      const k = s.name.toUpperCase();
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
     return consts.map((s) => ({
       name: s.name,
       value: s.value ?? "<const>",
@@ -760,8 +761,9 @@ export class QB64DebugSession extends LoggingDebugSession {
   private programSyms(): QB64Symbol[] {
     if (!this.parsedProgram) {
       try {
+        // Parse the flattened source so TYPEs/vars from $INCLUDEs are included.
         this.parsedProgram = parseContent(
-          fs.readFileSync(this.program, "latin1"),
+          this.flatText || fs.readFileSync(this.program, "latin1"),
           this.program
         );
       } catch {
@@ -1047,9 +1049,14 @@ export class QB64DebugSession extends LoggingDebugSession {
     response: DebugProtocol.GotoTargetsResponse,
     args: DebugProtocol.GotoTargetsArguments
   ): void {
-    // Offer the requested line as a jump target ("set next line").
+    // Offer the requested line as a jump target ("set next line"). The target
+    // id is the flattened line vwatch expects; only offer it if it maps.
+    const flat = this.toFlat(args.source.path ?? this.currentFile, args.line);
     response.body = {
-      targets: [{ id: args.line, label: `Line ${args.line}`, line: args.line }],
+      targets:
+        flat !== undefined
+          ? [{ id: flat, label: `Line ${args.line}`, line: args.line }]
+          : [],
     };
     this.sendResponse(response);
   }
@@ -1058,7 +1065,7 @@ export class QB64DebugSession extends LoggingDebugSession {
     response: DebugProtocol.GotoResponse,
     args: DebugProtocol.GotoArguments
   ): void {
-    this.send(VWatchOut.SetNextLine, mkl(args.targetId));
+    this.send(VWatchOut.SetNextLine, mkl(args.targetId)); // targetId is a flat line
     this.sendResponse(response);
   }
 
@@ -1254,10 +1261,14 @@ export class QB64DebugSession extends LoggingDebugSession {
     this.reportStop(line, reason);
   }
 
-  /** Actually pause: refresh state, request the call stack, notify VS Code. */
-  private reportStop(line: number, reason: string): void {
-    this.output(`Stopped at line ${line} (${reason}).\n`);
-    this.currentLine = line;
+  /** Actually pause: map the flat line to its source, then notify VS Code. */
+  private reportStop(flatLine: number, reason: string): void {
+    const origin = this.fromFlat(flatLine);
+    this.currentFile = origin?.file ?? this.program;
+    this.currentLine = origin?.line ?? flatLine;
+    this.output(
+      `Stopped at ${path.basename(this.currentFile)}:${this.currentLine} (${reason}).\n`
+    );
     this.callStackReady = false;
     this.callStack = [];
     this.refs.reset(); // variable references are per-stop
@@ -1312,19 +1323,24 @@ export class QB64DebugSession extends LoggingDebugSession {
     }, 700);
   }
 
-  private breakpointAt(line: number): BpInfo | undefined {
-    for (const bps of this.breakpoints.values()) {
-      const hit = bps.find((b) => b.line === line);
-      if (hit) return hit;
-    }
-    return undefined;
+  /** The breakpoint at a flattened line, via the line map. */
+  private breakpointAt(flatLine: number): BpInfo | undefined {
+    const origin = this.fromFlat(flatLine);
+    if (!origin) return undefined;
+    return this.breakpoints
+      .get(normalizePath(origin.file))
+      ?.find((b) => b.line === origin.line);
   }
 
-  /** Every breakpoint line across files (effectively the main file). */
+  /** Every breakpoint as a flattened line number to send to vwatch. */
   private allBreakpointLines(): number[] {
     const set = new Set<number>();
-    for (const bps of this.breakpoints.values()) {
-      for (const b of bps) set.add(b.line);
+    for (const [key, bps] of this.breakpoints) {
+      const byLine = this.flatByFile.get(key);
+      for (const b of bps) {
+        const flat = byLine?.get(b.line);
+        if (flat !== undefined) set.add(flat);
+      }
     }
     return [...set].sort((a, b) => a - b);
   }
@@ -1355,29 +1371,54 @@ export class QB64DebugSession extends LoggingDebugSession {
   }
 
   /**
-   * Chooses the file to compile. If the source already has `$DEBUG`, compile it
-   * directly. Otherwise (when autoAddDebug is on) write a sibling temp copy with
-   * `$DEBUG` appended — appended, so line numbers are unchanged.
+   * Flatten the program's $INCLUDE graph into a temp file to compile, recording
+   * the flattened-line → (file, line) map. `$DEBUG` is appended if absent
+   * (a global toggle; appending keeps flattened line numbers intact).
    */
   private prepareCompiledProgram(args: QB64LaunchArguments): void {
-    const source = fs.readFileSync(this.program, "latin1");
-    const hasDebug = /^[ \t]*\$DEBUG\b/im.test(source);
-    if (hasDebug) {
-      this.compiledProgram = this.program;
-      return;
-    }
-    const autoAdd = args.autoAddDebug ?? true;
-    if (!autoAdd) {
+    const resolver = createIncludeResolver([path.dirname(this.program)]);
+    const result = flatten(normalizePath(this.program), {
+      readFile: (p) => {
+        try {
+          return fs.readFileSync(p, "latin1");
+        } catch {
+          return null;
+        }
+      },
+      resolve: (spec, from) => resolver(from, spec),
+    });
+    this.origins = result.origins;
+    this.flatByFile = buildReverseMap(result.origins, normalizePath);
+
+    const hasDebug = /^[ \t]*\$DEBUG\b/im.test(result.text);
+    if (!hasDebug && args.autoAddDebug === false) {
       throw new Error(
         "Program has no $DEBUG metacommand and qb64pe.debug.autoAddDebug is off."
       );
     }
+    this.flatText = hasDebug ? result.text : result.text + os.EOL + "$DEBUG" + os.EOL;
+
     const dir = path.dirname(this.program);
     const base = path.basename(this.program, path.extname(this.program));
     const temp = path.join(dir, `.${base}.debug${path.extname(this.program)}`);
-    fs.writeFileSync(temp, source + os.EOL + "$DEBUG" + os.EOL, "latin1");
+    fs.writeFileSync(temp, this.flatText, "latin1");
     this.compiledProgram = temp;
     this.tempProgram = temp;
+    if (this.isTracing()) {
+      this.output(
+        `Flattened ${this.flatByFile.size} file(s) into ${this.origins.length} lines.\n`
+      );
+    }
+  }
+
+  /** Flattened line for an editor (file, line), if it maps. */
+  private toFlat(file: string, line: number): number | undefined {
+    return this.flatByFile.get(normalizePath(file))?.get(line);
+  }
+
+  /** Original (file, line) for a flattened line, if it maps. */
+  private fromFlat(flatLine: number): LineOrigin | undefined {
+    return this.origins[flatLine - 1];
   }
 
   private exePathFor(sourceFile: string): string {
@@ -1449,18 +1490,6 @@ export class QB64DebugSession extends LoggingDebugSession {
 
   private sourceFor(file: string): Source {
     return new Source(path.basename(file), file);
-  }
-
-  /** Resolve a SUB/FUNCTION name to its declaring file+line via the index. */
-  protected routineLocation(
-    name: string
-  ): { file: string; line: number } | undefined {
-    const hits = this.index.lookupBase(normalizeBase(name));
-    const routine = hits.find(
-      (s) => s.type === "SUB" || s.type === "FUNCTION"
-    );
-    if (routine) return { file: routine.file, line: routine.line + 1 };
-    return undefined;
   }
 
   // ---- teardown ------------------------------------------------------------
