@@ -2,6 +2,11 @@
 
 All notable changes to the "QB64 PE" extension will be documented in this file.
 
+## 0.20.12
+
+- Debugger: **TYPE members now show their values** in the VARIABLES view, even for TYPEs that contain variable-length `AS STRING` members. Previously a single variable-length string (common as the first field) made every following member show `<?>`, because its size was unknown and broke the byte-offset chain. A variable-length string in a TYPE occupies a fixed 8-byte descriptor slot (verified against QB64PE), so offsets now stay correct and the numeric/fixed members read live. The string field itself shows `<string>` (its text lives outside the record and isn't readable by a raw byte read).
+- Debugger: **hovering a variable in the editor shows its value while debugging** — including member paths (`CFG.FULLSCREEN`), array elements (`colW(3)`) and chains (`p.pos.x`), not just bare identifiers. (Added an evaluatable-expression provider so VS Code evaluates the whole expression under the cursor.)
+
 ## 0.20.11
 
 - Editor: **colour chips + picker for QB64 colour calls.** `_RGB32`/`_RGBA32`/`_RGB`/`_RGBA` and `_HSB`/`_HSB32`/`_HSBA`/`_HSBA32` calls with integer-literal arguments now show an inline colour swatch; click it for the native colour picker, and the call is rewritten in place (function name and argument count preserved; HSB stays HSB). Works anywhere the call appears — inside `COLOR`, `LINE`, `PAINT`, `_PRINTSTRING`, etc. Calls with variable/expression arguments are left alone, and HSB uses QB64's exact ranges (H 0–360, S/B 0–100, HSBA alpha 0–100). Bare palette-index colours (e.g. `COLOR 15, 4`) have no fixed RGB and are not chipped.

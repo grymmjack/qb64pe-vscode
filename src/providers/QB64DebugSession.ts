@@ -97,6 +97,9 @@ interface UdtField {
   isArray: boolean;
   isUDT: boolean;
   udtType?: string;
+  /** A variable-length STRING member: occupies an 8-byte descriptor slot, but
+   * its text lives elsewhere so it can't be read by a raw byte read. */
+  isVarString?: boolean;
 }
 
 interface UdtLayout {
@@ -634,7 +637,11 @@ export class QB64DebugSession extends LoggingDebugSession {
 
     for (const f of layout?.fields ?? []) {
       const offset = target.baseOffset + f.offset;
-      if (f.isArray || f.size === null || Number.isNaN(offset)) {
+      if (f.isVarString) {
+        // Slot size is known (keeps later offsets right) but the text isn't
+        // inline — show a placeholder instead of decoding the descriptor bytes.
+        immediate.push({ name: f.name, value: "<string>", variablesReference: 0 });
+      } else if (f.isArray || f.size === null || Number.isNaN(offset)) {
         immediate.push({
           name: f.name,
           value: f.isArray ? "<array>" : "<?>",
@@ -991,6 +998,7 @@ export class QB64DebugSession extends LoggingDebugSession {
         isArray: !!m.isArray,
         isUDT: !!info?.isUDT,
         udtType: info?.udtType,
+        isVarString: !!info?.isVarString,
       });
       offset = size === null ? NaN : offset + size;
     }
@@ -1002,18 +1010,25 @@ export class QB64DebugSession extends LoggingDebugSession {
   /** How to request a TYPE member of the given declared type. */
   private memberInfo(
     dataType: string | undefined
-  ): { sendType: string; size: number; isUDT?: boolean; udtType?: string } | null {
+  ): { sendType: string; size: number; isUDT?: boolean; udtType?: string; isVarString?: boolean } | null {
     if (!dataType) return null;
     const t = dataType.trim();
     const fixed = /^STRING\s*\*\s*(\d+)$/i.exec(t);
     if (fixed) return { sendType: `STRING * ${fixed[1]}`, size: parseInt(fixed[1], 10) };
+    // A variable-length STRING inside a TYPE occupies a fixed 8-byte descriptor
+    // slot (verified via _OFFSET on QB64PE x64); its text lives elsewhere, so we
+    // keep the slot size (so later members' offsets stay correct) but flag it as
+    // unreadable-by-byte-read.
+    if (/^STRING$/i.test(t)) {
+      return { sendType: "STRING", size: 8, isVarString: true };
+    }
     const scalar = SCALAR_SIZES[t.toUpperCase()];
     if (scalar) return { sendType: scalar.sendType, size: scalar.size };
     const nested = this.udtLayout(t);
     if (nested && !Number.isNaN(nested.size)) {
       return { sendType: "UDT", size: nested.size, isUDT: true, udtType: t };
     }
-    return null; // variable-length STRING in a UDT, or unknown
+    return null; // unknown type
   }
 
   // ---- evaluate (Watch / hover) --------------------------------------------
@@ -1132,6 +1147,11 @@ export class QB64DebugSession extends LoggingDebugSession {
       if (i === parts.length - 1) {
         if (field.isUDT) {
           this.reply(response, `{${field.udtType}}`);
+          return;
+        }
+        if (field.isVarString) {
+          // Variable-length string member: text isn't inline (8-byte descriptor).
+          this.reply(response, "<string>");
           return;
         }
         leaf = { sendType: field.sendType, size: field.size };
