@@ -2,10 +2,11 @@
 
 All notable changes to the "QB64 PE" extension will be documented in this file.
 
-## 0.20.13
+## 0.20.14
 
 - Editor: colour swatches are enabled for QB64PE files by default (`[QB64PE]` sets `editor.colorDecorators: true`). If you still don't see them, make sure `editor.colorDecorators` isn't turned off globally. (The swatches themselves shipped in 0.20.11.)
 - Debugger: new command **QB64PE: Debug (Force Rebuild, ignore cache)** (`qb64pe.debugRebuild`, `Ctrl+Alt+Shift+F5` in a QB64PE editor) — starts a debug session that recompiles even when `qb64pe.debug.cacheBuild` is on (does not clobber any VS Code default).
+- Docs: README now has a **Keyboard shortcuts** section — the extension's keys (Help, compile log, Force Rebuild, uppercase, open-in-IDE, …) plus handy built-in VS Code debug/edit shortcuts — and the stale linter-shortcut note is corrected.
 
 ## 0.20.12
 

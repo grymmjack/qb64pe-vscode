@@ -22,6 +22,7 @@ formatting, and a real source-level debugger.
 - [Formatting](#formatting)
 - [Debugging](#debugging)
 - [Documenting your own code](#documenting-your-own-code)
+- [Keyboard shortcuts](#keyboard-shortcuts)
 - [Settings reference](#settings-reference)
 - [Requirements, bugs, license](#requirements)
 
@@ -115,7 +116,8 @@ and understands includes, builtins, assignments, `FOR` counters, TYPE fields and
 
 - On by default; toggle with **`qb64pe.isIndexDiagnosticsEnabled`**.
 - This is *not* a syntax checker — for full compiler errors run the compiler lint
-  with **`Ctrl+Alt+L`** (or `qb64pe.isLintOnSaveEnabled`).
+  from the Command Palette (**“QB64PE: Lint”**) or the editor right-click menu (or
+  enable `qb64pe.isLintOnSaveEnabled`).
 
 ---
 
@@ -233,6 +235,43 @@ FUNCTION MovePlayer% (p AS Player, dx AS INTEGER)
 
 ---
 
+## Keyboard shortcuts
+
+Shortcuts this extension adds (active while a QB64PE editor is focused). You can
+change any of them in **File → Preferences → Keyboard Shortcuts** (search
+"QB64PE"); a matching entry in your personal `keybindings.json` always wins.
+
+| Shortcut | Action |
+|---|---|
+| `F1` | Help for the keyword under the cursor |
+| `Ctrl+F1` | Keyword index — alphabetical |
+| `Shift+F1` | Keyword index — by usage |
+| `Shift+Alt+L` | Open `compilelog.txt` |
+| `Ctrl+Alt+Shift+F5` | Debug: **Force Rebuild** (recompile even when the build cache is on) |
+| `Alt+Q` | Open the current file in the QB64PE IDE |
+| `Ctrl+Shift+U` | Uppercase the selection |
+| `Ctrl+F2` | Focus the Outline view |
+
+These run from the **Command Palette** (`Ctrl+Shift+P`, type "QB64PE") or the
+editor right-click menu — bind them to keys if you like: **Align Source**,
+**Lint**, **Build Help Pages**, **Remove line numbers**, **Renumber lines**.
+
+Handy built-in VS Code shortcuts that work with this extension:
+
+| Shortcut | Action |
+|---|---|
+| `F5` / `Ctrl+F5` | Start Debugging / Run Without Debugging |
+| `Shift+F5` / `Ctrl+Shift+F5` | Stop / Restart debugging |
+| `F9` · `F10` · `F11` · `Shift+F11` | Toggle breakpoint · Step Over · Step In · Step Out |
+| `F12` · `Ctrl+T` | Go to Definition · Go to Symbol in Workspace |
+| `Shift+Alt+F` · `Ctrl+Shift+B` | Format Document · Build the current file |
+
+> Note: `F1` opens QB64 help instead of the Command Palette while a `.bas` file
+> is focused; use `Ctrl+Shift+P` for the palette. Colour calls (`_RGB32`, `_HSB32`,
+> …) show an inline swatch when `editor.colorDecorators` is on.
+
+---
+
 ## Settings reference
 
 All settings live under the `qb64pe.*` namespace (Settings → search "QB64PE").
@@ -244,8 +283,9 @@ The most-used ones:
 - **Formatting:** `isFormatIndentEnabled`, `formatIndentSize`, `formatIndentSubs`, `isFormatEnabled`, `formatMode`
 - **Debugging:** `debug.basePort`, `debug.autoAddDebug`, `debug.timeoutMs`, `debug.cacheBuild`, `debug.trace`
 
-Also: `ctrl+shift+b` builds the current file; TODOs are collected in an Explorer
-view; `(_)RGB32` calls get a colour swatch in the gutter.
+Also: TODOs are collected in an Explorer view; `_RGB32`/`_HSB32` (and their
+variants) colour calls show an inline swatch + picker. See
+[Keyboard shortcuts](#keyboard-shortcuts) for the full key list.
 
 ---
 
