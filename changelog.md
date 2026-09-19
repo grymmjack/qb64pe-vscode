@@ -2,6 +2,11 @@
 
 All notable changes to the "QB64 PE" extension will be documented in this file.
 
+## 0.20.17
+
+- Debugger: the run banner now shows the **full build command** (compiler + all flags, e.g. `… -c … -o … -x -f:MaxCompilerProcesses=12`) under its own divider, between the program stats and the compile step. Only shown when actually compiling (a cached run skips it).
+- Debugger: clearer variable breakdown in the program stats — built-in types are listed in full and user-defined TYPE variables are summarized as "N UDT-typed in M types" (replacing the ambiguous "+N more").
+
 ## 0.20.16
 
 - Debugger: **much faster F5 builds on large projects.** The debug compile now runs the C++ phase in parallel (`-f:MaxCompilerProcesses`), like the QB64PE IDE and typical `tasks.json` builds — previously it was single-threaded. New setting `qb64pe.debug.maxCompilerProcesses` (also a per-launch `maxCompilerProcesses` arg): `0` = auto-detect CPU cores (default), `1` = single-threaded, higher = more parallelism.

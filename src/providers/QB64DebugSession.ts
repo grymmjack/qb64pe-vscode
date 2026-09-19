@@ -1762,16 +1762,21 @@ export class QB64DebugSession extends LoggingDebugSession {
       const cfg = vscode.workspace.getConfiguration("qb64pe");
       let procs = this.args?.maxCompilerProcesses ?? cfg.get<number>("debug.maxCompilerProcesses", 0);
       if (!procs || procs < 1) procs = os.cpus().length || 1;
+      const args = ["-c", sourceFile, "-o", exePath, "-x", `-f:MaxCompilerProcesses=${procs}`];
+
+      // Show the exact build command (a divider separates it from the stats).
+      const q = (a: string) => (/\s/.test(a) ? `"${a}"` : a);
+      const cmdStr = [compilerPath, ...args].map(q).join(" ");
+      const decorate = (this.decorateConsole ??= cfg.get<boolean>("debug.decorateConsole", true));
+      this.divider("🛠️  Build command");
+      this.output((decorate ? `  ${ANSI.cyan}${cmdStr}${ANSI.reset}` : `  ${cmdStr}`) + "\n");
+
       const t0 = Date.now();
       this.status(
         `Compiling ${path.basename(sourceFile)} with $DEBUG (${procs} compiler process${procs === 1 ? "" : "es"})...\n`,
         { icon: "🔨", color: "cyan" }
       );
-      const proc = cp.spawn(
-        compilerPath,
-        ["-c", sourceFile, "-o", exePath, "-x", `-f:MaxCompilerProcesses=${procs}`],
-        { cwd: path.dirname(sourceFile) }
-      );
+      const proc = cp.spawn(compilerPath, args, { cwd: path.dirname(sourceFile) });
       proc.stdout?.on("data", (d) => this.output(d.toString()));
       proc.stderr?.on("data", (d) => this.output(d.toString(), "stderr"));
       proc.on("error", (err) => {
@@ -1941,20 +1946,41 @@ export class QB64DebugSession extends LoggingDebugSession {
       const types = syms.filter((s) => s.type === "TYPE").length;
       const consts = syms.filter((s) => s.type === "CONST").length;
       const labels = syms.filter((s) => s.type === "LABEL").length;
+      // Split variables into built-in scalar types (shown in full — there are
+      // only ~15) vs user-defined TYPE (UDT) variables (summarized), so the
+      // breakdown is meaningful instead of "+N more" distinct type names.
       const vars = syms.filter((s) => s.type === "VARIABLE");
-      const byType = new Map<string, number>();
+      const typeSet = this.types();
+      const builtin = new Map<string, number>();
+      const udtTypes = new Set<string>();
+      let udtVars = 0;
+      let untyped = 0;
       for (const v of vars) {
-        const key = (v.dataType || "untyped").toUpperCase();
-        byType.set(key, (byType.get(key) ?? 0) + 1);
+        if (!v.dataType) {
+          untyped++;
+          continue;
+        }
+        const key = v.dataType.toUpperCase();
+        if (typeSet.has(key)) {
+          udtVars++;
+          udtTypes.add(key);
+        } else {
+          builtin.set(key, (builtin.get(key) ?? 0) + 1);
+        }
       }
-      const top = [...byType.entries()].sort((a, b) => b[1] - a[1]);
-      const shown = top.slice(0, 8).map(([t, c]) => `${t} ${n(c)}`).join(", ");
-      const more = top.length > 8 ? `, +${top.length - 8} more` : "";
+      const builtinStr = [...builtin.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .map(([t, c]) => `${t} ${n(c)}`)
+        .join(", ");
+      const extra: string[] = [];
+      if (udtVars) extra.push(`${n(udtVars)} UDT-typed in ${n(udtTypes.size)} type${udtTypes.size === 1 ? "" : "s"}`);
+      if (untyped) extra.push(`${n(untyped)} untyped`);
+      const extraStr = extra.length ? `  (${extra.join(" · ")})` : "";
 
       const head = `📊 Program: ${n(files.size)} file${files.size === 1 ? "" : "s"} · ${n(dirs.size)} ${dirs.size === 1 ? "dir" : "dirs"} · ${n(lines.length)} lines (${n(code)} code)`;
       this.output((decorate ? `${ANSI.magenta}${ANSI.bold}  ${head}${ANSI.reset}` : `  ${head}`) + "\n");
       emit(`SUBs ${n(subs)} · FUNCTIONs ${n(funcs)} · TYPEs ${n(types)} · CONSTs ${n(consts)} · Labels ${n(labels)}`);
-      if (vars.length) emit(`Variables ${n(vars.length)} — ${shown}${more}`);
+      if (vars.length) emit(`Variables ${n(vars.length)} — ${builtinStr}${extraStr}`);
       if (ext.length) emit(`DECLARE LIBRARY: ${n(ext.length)} routine${ext.length === 1 ? "" : "s"} · ${n(libs.size)} librar${libs.size === 1 ? "y" : "ies"}`);
     } catch {
       /* stats are cosmetic — never block a debug run */
