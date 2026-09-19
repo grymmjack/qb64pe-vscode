@@ -2,6 +2,11 @@
 
 All notable changes to the "QB64 PE" extension will be documented in this file.
 
+## 0.20.15
+
+- Debugger: **much faster F5 builds on large projects.** The debug compile now runs the C++ phase in parallel (`-f:MaxCompilerProcesses`), like the QB64PE IDE and typical `tasks.json` builds — previously it was single-threaded. New setting `qb64pe.debug.maxCompilerProcesses` (also a per-launch `maxCompilerProcesses` arg): `0` = auto-detect CPU cores (default), `1` = single-threaded, higher = more parallelism.
+- Debugger: the Debug Console now **timestamps launcher milestones** (compile start/finish with elapsed seconds, connect, handshake, each stop, session end) — e.g. `[15:41:12.880] Compile succeeded in 74.9s`. Raw compiler/program output and the progress bar are left unprefixed.
+
 ## 0.20.14
 
 - Editor: colour swatches are enabled for QB64PE files by default (`[QB64PE]` sets `editor.colorDecorators: true`). If you still don't see them, make sure `editor.colorDecorators` isn't turned off globally. (The swatches themselves shipped in 0.20.11.)

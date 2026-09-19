@@ -148,6 +148,8 @@ interface QB64LaunchArguments
   timeoutMs?: number;
   /** Reuse the previous build when the source is unchanged. */
   cacheBuild?: boolean;
+  /** Parallel C++ compiler processes (-f:MaxCompilerProcesses). 0 = auto. */
+  maxCompilerProcesses?: number;
 }
 
 /**
@@ -296,7 +298,7 @@ export class QB64DebugSession extends LoggingDebugSession {
     // repeat debug session of a large project from minutes into instant.
     let producedExe = this.tryUseCachedBuild(args, exePath);
     if (producedExe) {
-      this.output("Reusing cached build (no source changes).\n");
+      this.status("Reusing cached build (no source changes).\n");
     } else {
       fs.writeFileSync(this.compiledProgram, this.flatText, "latin1");
       const compileStart = Date.now();
@@ -1331,7 +1333,7 @@ export class QB64DebugSession extends LoggingDebugSession {
       return;
     }
     this.socket = socket;
-    this.output("Debuggee connected.\n");
+    this.status("Debuggee connected.\n");
     socket.on("data", (chunk) => this.onData(chunk));
     socket.on("error", () => {
       /* handled by close */
@@ -1437,7 +1439,7 @@ export class QB64DebugSession extends LoggingDebugSession {
 
     // `break` stops at the first line; `run` proceeds (stopping only at a
     // breakpoint on the entry line).
-    this.output(
+    this.status(
       `Handshake complete; breakpoints at [${lines.join(", ") || "none"}]; ` +
         `${this.stopOnEntry ? "stopping at entry" : "running"}.\n`
     );
@@ -1475,7 +1477,7 @@ export class QB64DebugSession extends LoggingDebugSession {
     const origin = this.fromFlat(flatLine);
     this.currentFile = origin?.file ?? this.program;
     this.currentLine = origin?.line ?? flatLine;
-    this.output(
+    this.status(
       `Stopped at ${path.basename(this.currentFile)}:${this.currentLine} (${reason}).\n`
     );
     this.callStackReady = false;
@@ -1738,24 +1740,39 @@ export class QB64DebugSession extends LoggingDebugSession {
     exePath: string
   ): Promise<boolean> {
     return new Promise((resolve) => {
-      this.output(`Compiling ${path.basename(sourceFile)} with $DEBUG...\n`);
+      // Parallelize the C++/g++ phase — the big win on large projects. 0/unset
+      // = auto-detect cores; 1 = single-threaded escape hatch.
+      const cfg = vscode.workspace.getConfiguration("qb64pe");
+      let procs = this.args?.maxCompilerProcesses ?? cfg.get<number>("debug.maxCompilerProcesses", 0);
+      if (!procs || procs < 1) procs = os.cpus().length || 1;
+      const t0 = Date.now();
+      this.status(
+        `Compiling ${path.basename(sourceFile)} with $DEBUG (${procs} compiler process${procs === 1 ? "" : "es"})...\n`
+      );
       const proc = cp.spawn(
         compilerPath,
-        ["-c", sourceFile, "-o", exePath, "-x"],
+        ["-c", sourceFile, "-o", exePath, "-x", `-f:MaxCompilerProcesses=${procs}`],
         { cwd: path.dirname(sourceFile) }
       );
       proc.stdout?.on("data", (d) => this.output(d.toString()));
       proc.stderr?.on("data", (d) => this.output(d.toString(), "stderr"));
       proc.on("error", (err) => {
-        this.output(`Failed to run compiler: ${err.message}\n`, "stderr");
+        this.status(`Failed to run compiler: ${err.message}\n`, "stderr");
         resolve(false);
       });
-      proc.on("close", (code) => resolve(code === 0));
+      proc.on("close", (code) => {
+        const secs = ((Date.now() - t0) / 1000).toFixed(1);
+        this.status(
+          `Compile ${code === 0 ? "succeeded" : "FAILED (exit " + code + ")"} in ${secs}s\n`,
+          code === 0 ? "stdout" : "stderr"
+        );
+        resolve(code === 0);
+      });
     });
   }
 
   private spawnDebuggee(exePath: string, port: number): void {
-    this.output(`Launching (QB64DEBUGPORT=${port})...\n`);
+    this.status(`Launching (QB64DEBUGPORT=${port})...\n`);
     const child = cp.spawn(exePath, [], {
       cwd: path.dirname(exePath),
       env: { ...process.env, QB64DEBUGPORT: String(port) },
@@ -1783,7 +1800,7 @@ export class QB64DebugSession extends LoggingDebugSession {
 
   private terminated = false;
   private terminate(reason = "unknown"): void {
-    if (!this.terminated) this.output(`Session ending (${reason}).\n`);
+    if (!this.terminated) this.status(`Session ending (${reason}).\n`);
     if (this.terminated) return;
     this.terminated = true;
     if (this.timeoutTimer) clearTimeout(this.timeoutTimer);
@@ -1812,6 +1829,18 @@ export class QB64DebugSession extends LoggingDebugSession {
 
   private output(text: string, category: "stdout" | "stderr" = "stdout"): void {
     this.sendEvent(new OutputEvent(text, category));
+  }
+
+  /**
+   * Emit a timestamped launcher milestone (compile start/end, connect, stop, …).
+   * Raw compiler/program output and trace lines stay on plain output() so the
+   * progress bar and program text aren't prefixed.
+   */
+  private status(text: string, category: "stdout" | "stderr" = "stdout"): void {
+    const d = new Date();
+    const p = (n: number, w = 2) => String(n).padStart(w, "0");
+    const ts = `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`;
+    this.output(`[${ts}] ${text}`, category);
   }
 
   private fail(response: DebugProtocol.Response, message: string): void {
