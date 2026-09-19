@@ -2,6 +2,10 @@
 
 All notable changes to the "QB64 PE" extension will be documented in this file.
 
+## 0.20.18
+
+- Debugger: the compile-time is now shown as a **human-readable duration** with the raw seconds in parentheses — e.g. `Compile succeeded in 9m 5.6s (545.6s)` (under a minute stays as just `45.6s`).
+
 ## 0.20.17
 
 - Debugger: the run banner now shows the **full build command** (compiler + all flags, e.g. `… -c … -o … -x -f:MaxCompilerProcesses=12`) under its own divider, between the program stats and the compile step. Only shown when actually compiling (a cached run skips it).

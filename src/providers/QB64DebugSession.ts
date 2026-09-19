@@ -1784,9 +1784,8 @@ export class QB64DebugSession extends LoggingDebugSession {
         resolve(false);
       });
       proc.on("close", (code) => {
-        const secs = ((Date.now() - t0) / 1000).toFixed(1);
         this.status(
-          `Compile ${code === 0 ? "succeeded" : "FAILED (exit " + code + ")"} in ${secs}s\n`,
+          `Compile ${code === 0 ? "succeeded" : "FAILED (exit " + code + ")"} in ${this.humanDuration(Date.now() - t0)}\n`,
           code === 0
             ? { icon: "✅", color: "green" }
             : { icon: "❌", color: "red", category: "stderr" }
@@ -1891,6 +1890,21 @@ export class QB64DebugSession extends LoggingDebugSession {
   }
   private decorateConsole?: boolean;
   private time12h?: boolean;
+
+  /** "45.6s", "9m 5.6s (545.6s)", "1h 2m 3.0s (3723.0s)" — human first, raw secs in parens. */
+  private humanDuration(ms: number): string {
+    const total = ms / 1000;
+    const secs = `${total.toFixed(1)}s`;
+    if (total < 60) return secs;
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    const parts = [];
+    if (h) parts.push(`${h}h`);
+    parts.push(`${m}m`);
+    parts.push(`${s.toFixed(1)}s`);
+    return `${parts.join(" ")} (${secs})`;
+  }
 
   /** A full-width rule with a centered-ish title, to separate F5 runs. */
   private divider(title: string): void {
