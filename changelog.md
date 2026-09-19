@@ -2,6 +2,10 @@
 
 All notable changes to the "QB64 PE" extension will be documented in this file.
 
+## 0.20.10
+
+- Debugger: **arrays now expand in the VARIABLES view.** A 1-D array whose bounds are literal in its `DIM`/`REDIM` (e.g. `DIM colW(10)`) is shown as an expandable node listing `colW(0)`, `colW(1)`, … `colW(10)` — no need to add a watch for each index. Elements are read live and shown in numeric order. Bounds are recovered from the source declaration (the runtime doesn't expose them) and `OPTION BASE` is honored, so out-of-bounds elements are never read. Dynamic (`REDIM a(n)`), multi-dimensional, and UDT arrays, or any array larger than `qb64pe.debug.arrayExpandLimit` (default 256), keep the previous "Watch name(index)" hint.
+
 ## 0.20.9
 
 - Debugger: the debug UI now appears the **instant F5 is pressed**, before compilation — so you get immediate feedback (and see the "Flattened…/Compiling…" output live) instead of the panes only showing up after a stalled compile finishes. Previously the reveal was tied to the session-started event, which for QB64PE fires only after the compile completes. This applies to both `qb64pe.debug.focusRunDebugViewOnStart` and `qb64pe.debug.focusDebugConsoleOnStart`.

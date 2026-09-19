@@ -44,6 +44,7 @@ import {
   CallStackFrame,
 } from "../core/vwatchProtocol";
 import { ResolvedVar, resolveGlobals, resolveLocals } from "../core/vwatchVars";
+import { ArrayBounds, optionBase, parseArrayBounds } from "../core/arrayBounds";
 import {
   compareValues,
   hitConditionMet,
@@ -59,6 +60,8 @@ interface VarBatch {
   remaining: number;
   vars: DebugProtocol.Variable[];
   settled: boolean;
+  /** Ordering for the settled list (default: alphabetical by name). */
+  sort?: (a: DebugProtocol.Variable, b: DebugProtocol.Variable) => number;
 }
 
 /** What a DAP variablesReference points at. */
@@ -73,6 +76,17 @@ type RefTarget =
       isLocal: boolean;
       scope: string;
       baseOffset: number;
+    }
+  | {
+      kind: "array";
+      name: string;
+      localIndex: number;
+      isLocal: boolean;
+      scope: string;
+      varType: string;
+      varSize: number;
+      lower: number;
+      upper: number;
     };
 
 interface UdtField {
@@ -486,6 +500,8 @@ export class QB64DebugSession extends LoggingDebugSession {
 
   private readonly refs = new Handles<RefTarget>();
   private varSeq = 0;
+  /** Cached OPTION BASE (0/1) for the flattened program, for array lower bounds. */
+  private optionBaseCache?: 0 | 1;
   /** tempIndex -> the pending get-var it belongs to. */
   private readonly varPending = new Map<
     number,
@@ -530,8 +546,16 @@ export class QB64DebugSession extends LoggingDebugSession {
       return;
     }
 
-    // A scope: list its variables (scalars read live, UDTs expandable).
+    if (target.kind === "array") {
+      this.expandArray(response, target);
+      return;
+    }
+
+    // A scope: list its variables (scalars read live, UDTs/arrays expandable).
     const isLocal = target.kind === "locals";
+    const arrayLimit = vscode.workspace
+      .getConfiguration("qb64pe")
+      .get<number>("debug.arrayExpandLimit", 256);
     const vars = isLocal ? this.currentLocalVars() : this.globals;
     const scope = isLocal ? this.currentSub : "";
 
@@ -557,11 +581,36 @@ export class QB64DebugSession extends LoggingDebugSession {
           variablesReference: ref,
         });
       } else if (v.isArray) {
-        immediate.push({
-          name: v.name + "()",
-          value: `<array of ${v.isUDT ? "TYPE" : v.varType}> — Watch ${v.name}(index)`,
-          variablesReference: 0,
-        });
+        // Expand a 1-D scalar array whose literal bounds we can recover from its
+        // DIM (so we never read past the real end). Everything else (UDT arrays,
+        // dynamic/multi-dim, or over the limit) keeps the watch-by-index hint.
+        const bounds = !v.isUDT && arrayLimit > 0 ? this.arrayBoundsOf(v.name) : null;
+        const count = bounds ? bounds.upper - bounds.lower + 1 : 0;
+        if (bounds && count > 0 && count <= arrayLimit) {
+          const ref = this.refs.create({
+            kind: "array",
+            name: v.name,
+            localIndex: v.index,
+            isLocal,
+            scope,
+            varType: v.varType,
+            varSize: v.size,
+            lower: bounds.lower,
+            upper: bounds.upper,
+          });
+          immediate.push({
+            name: v.name + "()",
+            value: `<${v.varType}(${bounds.lower}..${bounds.upper})>`,
+            variablesReference: ref,
+            indexedVariables: count,
+          });
+        } else {
+          immediate.push({
+            name: v.name + "()",
+            value: `<array of ${v.isUDT ? "TYPE" : v.varType}> — Watch ${v.name}(index)`,
+            variablesReference: 0,
+          });
+        }
       } else {
         this.requestScalar(batch, isLocal, scope, v.index, 0, 0, v.varType, v.size, v.name);
       }
@@ -652,6 +701,84 @@ export class QB64DebugSession extends LoggingDebugSession {
       varSize,
       tempIndex,
     });
+  }
+
+  /** Expand an array variable into its elements name(lower)..name(upper). */
+  private expandArray(
+    response: DebugProtocol.VariablesResponse,
+    target: Extract<RefTarget, { kind: "array" }>
+  ): void {
+    const immediate: DebugProtocol.Variable[] = [];
+    // Elements arrive out of order (async reads); sort by index, not by name
+    // (which would put "(10)" before "(2)").
+    const indexOf = (v: DebugProtocol.Variable) => {
+      const m = /\((-?\d+)\)$/.exec(v.name);
+      return m ? parseInt(m[1], 10) : 0;
+    };
+    const batch: VarBatch = {
+      response,
+      remaining: 0,
+      vars: immediate,
+      settled: false,
+      sort: (a, b) => indexOf(a) - indexOf(b),
+    };
+
+    for (let i = target.lower; i <= target.upper; i++) {
+      this.requestArrayElement(batch, target, i);
+    }
+
+    if (batch.remaining === 0) {
+      this.settleVarBatch(batch);
+    } else {
+      // Scale the safety timeout a little with element count; early-settles once
+      // every read has come back.
+      const budget = Math.min(5000, 700 + batch.remaining * 8);
+      setTimeout(() => this.settleVarBatch(batch), budget);
+    }
+  }
+
+  /** Queue a get-var for one array element into a batch. */
+  private requestArrayElement(
+    batch: VarBatch,
+    target: Extract<RefTarget, { kind: "array" }>,
+    index: number
+  ): void {
+    const name = `${target.name}(${index})`;
+    if (!this.socket) {
+      batch.vars.push({ name, value: "<no session>", variablesReference: 0 });
+      return;
+    }
+    const tempIndex = ++this.varSeq;
+    batch.remaining += 1;
+    this.varPending.set(tempIndex, { batch, name, varType: target.varType });
+    this.issueGetVar({
+      isLocal: target.isLocal,
+      scope: target.scope,
+      localIndex: target.localIndex,
+      isArray: true,
+      arrayIndexes: [index],
+      varType: target.varType,
+      varSize: target.varSize,
+      tempIndex,
+    });
+  }
+
+  /**
+   * Literal bounds of a 1-D array, recovered from its source DIM/REDIM, or null
+   * when they aren't integer literals (dynamic/multi-dim) — in which case the
+   * array is left as a watch-by-index hint rather than risk an out-of-bounds read.
+   */
+  private arrayBoundsOf(name: string): ArrayBounds | null {
+    const base = (this.optionBaseCache ??= optionBase(this.flatText));
+    const norm = (s: string) => s.replace(/[%&!#$~]+$/, "").toUpperCase();
+    const wanted = norm(name);
+    const sym = this.programSyms().find(
+      (s) => s.type === "VARIABLE" && s.isArray && norm(s.name) === wanted
+    );
+    if (!sym) return null;
+    const line = this.flatText.split(/\r?\n/)[sym.line];
+    if (!line) return null;
+    return parseArrayBounds(line, sym.name.replace(/[%&!#$~]+$/, ""), base);
   }
 
   /** CONST symbols with their static values (always correct, no protocol). */
@@ -787,7 +914,7 @@ export class QB64DebugSession extends LoggingDebugSession {
   private settleVarBatch(batch: VarBatch): void {
     if (batch.settled) return;
     batch.settled = true;
-    batch.vars.sort((a, b) => a.name.localeCompare(b.name));
+    batch.vars.sort(batch.sort ?? ((a, b) => a.name.localeCompare(b.name)));
     batch.response.body = { variables: batch.vars };
     this.sendResponse(batch.response);
   }
