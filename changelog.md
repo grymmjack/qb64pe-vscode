@@ -2,6 +2,10 @@
 
 All notable changes to the "QB64 PE" extension will be documented in this file.
 
+## 0.20.3
+
+- Linting: the duplicate-definition check no longer flags a label name reused in a different scope. QB64 line labels are scoped to their SUB/FUNCTION (or module level), so the same label in two different routines is legal; only a repeat within the same scope is reported now.
+
 ## 0.20.2
 
 - Debugger: sturdier first run on Windows/macOS — the produced executable is now found even when the compiler names it unexpectedly (falls back to scanning the build folder), and the connect-timeout message now points at the usual causes (missing , busy port, Windows firewall, or a too-short timeout on huge programs).

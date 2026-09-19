@@ -98,7 +98,14 @@ function duplicates(index: SymbolIndex, key: string, out: Diagnostic[]): void {
       if (isRoutine(s) && !s.isExternal) group = `routine:${normalizeBase(s.name)}`;
       else if (s.type === "TYPE") group = `type:${normalizeName(s.name)}`;
       else if (s.type === "CONST" && s.scope !== "LOCAL") group = `const:${normalizeName(s.name)}`;
-      else if (s.type === "LABEL" && f === key) group = `label:${normalizeName(s.name)}`;
+      else if (s.type === "LABEL" && f === key) {
+        // Labels are scoped to their routine (or module level), so the same
+        // label name in two different SUBs/FUNCTIONs is legal — only a repeat
+        // within the same scope is a duplicate.
+        const routine = enclosingRoutine(index, key, s.line);
+        const scopeId = routine ? `${normalizeBase(routine.name)}@${routine.line}` : "module";
+        group = `label:${scopeId}:${normalizeName(s.name)}`;
+      }
       if (!group) continue;
       const list = groups.get(group);
       if (list) list.push(s);
