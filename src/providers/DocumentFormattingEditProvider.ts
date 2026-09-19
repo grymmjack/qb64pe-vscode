@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import * as logFunctions from "../logFunctions";
 import { TokenInfo } from "../TokenInfo";
 import { reindentLines } from "../core/indent";
+import { scanLine } from "../core/lexer";
 
 // Code Formatter
 // Seems like a good place to find includes and make the double click to open work.
@@ -201,6 +202,15 @@ export class DocumentFormattingEditProvider implements vscode.DocumentFormatting
 				// let pass 2 re-indent it.
 				if (!contentEnabled) {
 					contentLines.push(originalLine.text);
+					continue;
+				}
+				// Metacommands ($CONSOLE:ONLY, $DYNAMIC, $ASSERTS:CONSOLE, '$INCLUDE:'x',
+				// $IF ...) are one indivisible token: their ':' and ' are NOT statement
+				// separators or comments, so the content normaliser must not touch them
+				// (it would turn "$CONSOLE:ONLY" into "$CONSOLE : ONLY", which fails to
+				// compile). Leave the content as-is; pass 2 still re-indents it.
+				if (scanLine(originalLine.text).isMetacommand) {
+					contentLines.push(originalLine.text.trim());
 					continue;
 				}
 				let newLine = originalLine.text.trim().replaceAll(" && ", " and ").replaceAll(" || ", "  or ").replaceAll(" != ", " <> ").replaceAll(" == ", " = ");
