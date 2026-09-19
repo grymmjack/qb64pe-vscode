@@ -54,6 +54,18 @@ import {
 const THREAD_ID = 1;
 const THREAD_NAME = "QB64PE program";
 
+/** ANSI SGR codes for the Debug Console (it renders these). */
+const ANSI = {
+  reset: "\x1b[0m",
+  bold: "\x1b[1m",
+  dim: "\x1b[90m",
+  red: "\x1b[31m",
+  green: "\x1b[32m",
+  yellow: "\x1b[33m",
+  cyan: "\x1b[36m",
+  magenta: "\x1b[35m",
+} as const;
+
 /** A held variablesResponse collecting async get-var replies. */
 interface VarBatch {
   response: DebugProtocol.VariablesResponse;
@@ -148,6 +160,8 @@ interface QB64LaunchArguments
   timeoutMs?: number;
   /** Reuse the previous build when the source is unchanged. */
   cacheBuild?: boolean;
+  /** Parallel C++ compiler processes (-f:MaxCompilerProcesses). 0 = auto. */
+  maxCompilerProcesses?: number;
 }
 
 /**
@@ -252,6 +266,8 @@ export class QB64DebugSession extends LoggingDebugSession {
     this.stopOnEntry = !!args.stopOnEntry;
     this.program = args.program;
 
+    this.divider(`🐛 QB64PE Debug · ${path.basename(this.program || "program")}`);
+
     if (!this.program || !fs.existsSync(this.program)) {
       this.fail(response, `Program not found: ${this.program}`);
       return;
@@ -279,6 +295,7 @@ export class QB64DebugSession extends LoggingDebugSession {
     }
 
     this.lineCount = this.origins.length + 2;
+    this.logProgramStats();
 
     // Host first, so the debuggee can connect the instant it starts.
     let port: number;
@@ -296,7 +313,7 @@ export class QB64DebugSession extends LoggingDebugSession {
     // repeat debug session of a large project from minutes into instant.
     let producedExe = this.tryUseCachedBuild(args, exePath);
     if (producedExe) {
-      this.output("Reusing cached build (no source changes).\n");
+      this.status("Reusing cached build (no source changes).\n", { icon: "♻️", color: "green" });
     } else {
       fs.writeFileSync(this.compiledProgram, this.flatText, "latin1");
       const compileStart = Date.now();
@@ -1331,7 +1348,7 @@ export class QB64DebugSession extends LoggingDebugSession {
       return;
     }
     this.socket = socket;
-    this.output("Debuggee connected.\n");
+    this.status("Debuggee connected.\n", { icon: "🔌", color: "green" });
     socket.on("data", (chunk) => this.onData(chunk));
     socket.on("error", () => {
       /* handled by close */
@@ -1437,9 +1454,10 @@ export class QB64DebugSession extends LoggingDebugSession {
 
     // `break` stops at the first line; `run` proceeds (stopping only at a
     // breakpoint on the entry line).
-    this.output(
+    this.status(
       `Handshake complete; breakpoints at [${lines.join(", ") || "none"}]; ` +
-        `${this.stopOnEntry ? "stopping at entry" : "running"}.\n`
+        `${this.stopOnEntry ? "stopping at entry" : "running"}.\n`,
+      { icon: "🤝", color: "cyan" }
     );
     this.send(this.stopOnEntry ? VWatchOut.Break : VWatchOut.Run);
   }
@@ -1475,8 +1493,9 @@ export class QB64DebugSession extends LoggingDebugSession {
     const origin = this.fromFlat(flatLine);
     this.currentFile = origin?.file ?? this.program;
     this.currentLine = origin?.line ?? flatLine;
-    this.output(
-      `Stopped at ${path.basename(this.currentFile)}:${this.currentLine} (${reason}).\n`
+    this.status(
+      `Stopped at ${path.basename(this.currentFile)}:${this.currentLine} (${reason}).\n`,
+      { icon: "⏸️", color: "yellow" }
     );
     this.callStackReady = false;
     this.callStack = [];
@@ -1738,24 +1757,42 @@ export class QB64DebugSession extends LoggingDebugSession {
     exePath: string
   ): Promise<boolean> {
     return new Promise((resolve) => {
-      this.output(`Compiling ${path.basename(sourceFile)} with $DEBUG...\n`);
+      // Parallelize the C++/g++ phase — the big win on large projects. 0/unset
+      // = auto-detect cores; 1 = single-threaded escape hatch.
+      const cfg = vscode.workspace.getConfiguration("qb64pe");
+      let procs = this.args?.maxCompilerProcesses ?? cfg.get<number>("debug.maxCompilerProcesses", 0);
+      if (!procs || procs < 1) procs = os.cpus().length || 1;
+      const t0 = Date.now();
+      this.status(
+        `Compiling ${path.basename(sourceFile)} with $DEBUG (${procs} compiler process${procs === 1 ? "" : "es"})...\n`,
+        { icon: "🔨", color: "cyan" }
+      );
       const proc = cp.spawn(
         compilerPath,
-        ["-c", sourceFile, "-o", exePath, "-x"],
+        ["-c", sourceFile, "-o", exePath, "-x", `-f:MaxCompilerProcesses=${procs}`],
         { cwd: path.dirname(sourceFile) }
       );
       proc.stdout?.on("data", (d) => this.output(d.toString()));
       proc.stderr?.on("data", (d) => this.output(d.toString(), "stderr"));
       proc.on("error", (err) => {
-        this.output(`Failed to run compiler: ${err.message}\n`, "stderr");
+        this.status(`Failed to run compiler: ${err.message}\n`, { icon: "❌", color: "red", category: "stderr" });
         resolve(false);
       });
-      proc.on("close", (code) => resolve(code === 0));
+      proc.on("close", (code) => {
+        const secs = ((Date.now() - t0) / 1000).toFixed(1);
+        this.status(
+          `Compile ${code === 0 ? "succeeded" : "FAILED (exit " + code + ")"} in ${secs}s\n`,
+          code === 0
+            ? { icon: "✅", color: "green" }
+            : { icon: "❌", color: "red", category: "stderr" }
+        );
+        resolve(code === 0);
+      });
     });
   }
 
   private spawnDebuggee(exePath: string, port: number): void {
-    this.output(`Launching (QB64DEBUGPORT=${port})...\n`);
+    this.status(`Launching (QB64DEBUGPORT=${port})...\n`, { icon: "🚀", color: "cyan" });
     const child = cp.spawn(exePath, [], {
       cwd: path.dirname(exePath),
       env: { ...process.env, QB64DEBUGPORT: String(port) },
@@ -1783,7 +1820,7 @@ export class QB64DebugSession extends LoggingDebugSession {
 
   private terminated = false;
   private terminate(reason = "unknown"): void {
-    if (!this.terminated) this.output(`Session ending (${reason}).\n`);
+    if (!this.terminated) this.status(`Session ending (${reason}).\n`, { icon: "⏹️", color: "dim" });
     if (this.terminated) return;
     this.terminated = true;
     if (this.timeoutTimer) clearTimeout(this.timeoutTimer);
@@ -1812,6 +1849,116 @@ export class QB64DebugSession extends LoggingDebugSession {
 
   private output(text: string, category: "stdout" | "stderr" = "stdout"): void {
     this.sendEvent(new OutputEvent(text, category));
+  }
+
+  /**
+   * Emit a timestamped launcher milestone (compile start/end, connect, stop, …)
+   * with an optional emoji + ANSI colour (the Debug Console renders SGR codes).
+   * Decorations are toggled by qb64pe.debug.decorateConsole; the timestamp is
+   * always shown. Raw compiler/program output and trace lines stay on plain
+   * output() so the progress bar and program text aren't prefixed.
+   */
+  private status(
+    text: string,
+    opts: { icon?: string; color?: keyof typeof ANSI; category?: "stdout" | "stderr" } = {}
+  ): void {
+    const cfg = vscode.workspace.getConfiguration("qb64pe");
+    const decorate = (this.decorateConsole ??= cfg.get<boolean>("debug.decorateConsole", true));
+    const use12 = (this.time12h ??= cfg.get<string>("debug.timeFormat", "12-hour") !== "24-hour");
+    const d = new Date();
+    const p = (n: number, w = 2) => String(n).padStart(w, "0");
+    const h = d.getHours();
+    const hms = `${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`;
+    const ts = use12
+      ? `${(h % 12) || 12}:${hms} ${h < 12 ? "AM" : "PM"}`
+      : `${p(h)}:${hms}`;
+    const nl = text.endsWith("\n");
+    const body = nl ? text.slice(0, -1) : text;
+    let line: string;
+    if (decorate) {
+      const icon = opts.icon ? `${opts.icon} ` : "";
+      const col = opts.color ? ANSI[opts.color] : "";
+      line = `${ANSI.dim}[${ts}]${ANSI.reset} ${icon}${col}${body}${col ? ANSI.reset : ""}`;
+    } else {
+      line = `[${ts}] ${body}`;
+    }
+    this.output(line + (nl ? "\n" : ""), opts.category ?? "stdout");
+  }
+  private decorateConsole?: boolean;
+  private time12h?: boolean;
+
+  /** A full-width rule with a centered-ish title, to separate F5 runs. */
+  private divider(title: string): void {
+    const decorate = (this.decorateConsole ??= vscode.workspace
+      .getConfiguration("qb64pe")
+      .get<boolean>("debug.decorateConsole", true));
+    const rule = "─".repeat(64);
+    if (decorate) {
+      this.output(
+        `${ANSI.cyan}${rule}${ANSI.reset}\n${ANSI.bold}${ANSI.cyan}  ${title}${ANSI.reset}\n${ANSI.cyan}${rule}${ANSI.reset}\n`
+      );
+    } else {
+      this.output(`${rule}\n  ${title}\n${rule}\n`);
+    }
+  }
+
+  /**
+   * A one-time "character sheet" for the program: how many files/directories
+   * were flattened into one, line counts, and symbol tallies (SUBs, FUNCTIONs,
+   * TYPEs, CONSTs, variables by type, DECLARE LIBRARY). Printed under the run
+   * divider. Best-effort — wrapped so a stats hiccup never blocks a debug run.
+   */
+  private logProgramStats(): void {
+    try {
+      const decorate = (this.decorateConsole ??= vscode.workspace
+        .getConfiguration("qb64pe")
+        .get<boolean>("debug.decorateConsole", true));
+      const n = (x: number) => x.toLocaleString("en-US");
+      const dim = (t: string) => (decorate ? `${ANSI.dim}${t}${ANSI.reset}` : t);
+      const emit = (t: string) => this.output(`${dim("  " + t)}\n`);
+
+      // Files / directories / lines from the flatten origins + text.
+      const files = new Set<string>();
+      const dirs = new Set<string>();
+      for (const o of this.origins) {
+        files.add(o.file);
+        dirs.add(path.dirname(o.file));
+      }
+      const lines = this.flatText.split(/\r?\n/);
+      let code = 0;
+      for (const raw of lines) {
+        const t = raw.trim();
+        if (t && !t.startsWith("'") && !/^REM(\s|$)/i.test(t)) code++;
+      }
+
+      // Symbol tallies from the parsed flattened program.
+      const syms = this.programSyms();
+      const isRoutine = (s: QB64Symbol, t: "SUB" | "FUNCTION") => s.type === t;
+      const subs = syms.filter((s) => isRoutine(s, "SUB") && !s.isExternal).length;
+      const funcs = syms.filter((s) => isRoutine(s, "FUNCTION") && !s.isExternal).length;
+      const ext = syms.filter((s) => (s.type === "SUB" || s.type === "FUNCTION") && s.isExternal);
+      const libs = new Set(ext.map((s) => s.library).filter((x): x is string => !!x));
+      const types = syms.filter((s) => s.type === "TYPE").length;
+      const consts = syms.filter((s) => s.type === "CONST").length;
+      const labels = syms.filter((s) => s.type === "LABEL").length;
+      const vars = syms.filter((s) => s.type === "VARIABLE");
+      const byType = new Map<string, number>();
+      for (const v of vars) {
+        const key = (v.dataType || "untyped").toUpperCase();
+        byType.set(key, (byType.get(key) ?? 0) + 1);
+      }
+      const top = [...byType.entries()].sort((a, b) => b[1] - a[1]);
+      const shown = top.slice(0, 8).map(([t, c]) => `${t} ${n(c)}`).join(", ");
+      const more = top.length > 8 ? `, +${top.length - 8} more` : "";
+
+      const head = `📊 Program: ${n(files.size)} file${files.size === 1 ? "" : "s"} · ${n(dirs.size)} ${dirs.size === 1 ? "dir" : "dirs"} · ${n(lines.length)} lines (${n(code)} code)`;
+      this.output((decorate ? `${ANSI.magenta}${ANSI.bold}  ${head}${ANSI.reset}` : `  ${head}`) + "\n");
+      emit(`SUBs ${n(subs)} · FUNCTIONs ${n(funcs)} · TYPEs ${n(types)} · CONSTs ${n(consts)} · Labels ${n(labels)}`);
+      if (vars.length) emit(`Variables ${n(vars.length)} — ${shown}${more}`);
+      if (ext.length) emit(`DECLARE LIBRARY: ${n(ext.length)} routine${ext.length === 1 ? "" : "s"} · ${n(libs.size)} librar${libs.size === 1 ? "y" : "ies"}`);
+    } catch {
+      /* stats are cosmetic — never block a debug run */
+    }
   }
 
   private fail(response: DebugProtocol.Response, message: string): void {

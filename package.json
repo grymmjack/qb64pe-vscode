@@ -2,7 +2,7 @@
   "name": "qb64pe",
   "displayName": "QB64PE",
   "description": "QB64PE (Phoenix Edition) language support for Visual Studio Code with intelligent code completion and 500+ keywords.",
-  "version": "0.20.14",
+  "version": "0.20.16",
   "engines": {
     "vscode": "^1.78.1"
   },
@@ -92,6 +92,11 @@
                 "type": "boolean",
                 "description": "Debug: reuse the previous build when the source is unchanged (skips recompilation). Defaults to qb64pe.debug.cacheBuild.",
                 "default": true
+              },
+              "maxCompilerProcesses": {
+                "type": "integer",
+                "description": "Debug: parallel C++ compiler processes (-f:MaxCompilerProcesses). 0 = auto-detect cores. Above the core count oversubscribes (diminishing returns, no crash). Defaults to qb64pe.debug.maxCompilerProcesses.",
+                "default": 0
               },
               "command": {
                 "type": "string",
@@ -264,6 +269,26 @@
           "type": "boolean",
           "default": true,
           "description": "Debug|Trace: log the vwatch protocol exchange (commands sent and received) to the Debug Console. Useful while the debugger is stabilizing; turn off for quiet output."
+        },
+        "qb64pe.debug.maxCompilerProcesses": {
+          "type": "integer",
+          "default": 0,
+          "minimum": 0,
+          "description": "Debug|Compiler processes: parallel C++ compiler processes for F5 builds (passed as -f:MaxCompilerProcesses). 0 = auto-detect CPU cores (recommended). 1 = single-threaded. A value above your core count is still passed through, but usually gives diminishing returns (the CPU is oversubscribed) — it won't crash."
+        },
+        "qb64pe.debug.decorateConsole": {
+          "type": "boolean",
+          "default": true,
+          "description": "Debug|Console decorations: add a run divider, program stats, emoji, and colour to the debugger's milestone lines in the Debug Console (compile, connect, stop, …). Timestamps show either way. Turn off for plain text."
+        },
+        "qb64pe.debug.timeFormat": {
+          "type": "string",
+          "enum": [
+            "12-hour",
+            "24-hour"
+          ],
+          "default": "12-hour",
+          "description": "Debug|Timestamp format: clock style for the Debug Console milestone timestamps — 12-hour (e.g. 3:41:12.880 PM) or 24-hour (15:41:12.880)."
         },
         "qb64pe.debug.arrayExpandLimit": {
           "type": "number",
