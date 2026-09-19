@@ -265,6 +265,24 @@ export async function activate(context: vscode.ExtensionContext) {
     )
   );
 
+  // Reveal the debug UI when a QB64PE session starts (each pane independently
+  // opt-in). Revealing also un-hides a pane that is currently collapsed. We
+  // focus the Run and Debug view last so keyboard focus lands there.
+  context.subscriptions.push(
+    vscode.debug.onDidStartDebugSession((session) => {
+      if (session.type !== "QB64PE") {
+        return;
+      }
+      const cfg = vscode.workspace.getConfiguration("qb64pe");
+      if (cfg.get<boolean>("debug.focusDebugConsoleOnStart", true)) {
+        vscode.commands.executeCommand("workbench.panel.repl.view.focus");
+      }
+      if (cfg.get<boolean>("debug.focusRunDebugViewOnStart", true)) {
+        vscode.commands.executeCommand("workbench.view.debug");
+      }
+    })
+  );
+
   decoratorFunctions.setupDecorate(workspaceIndex);
   vscodeFunctions.createFiles();
   gitFunctions.createGitignore();

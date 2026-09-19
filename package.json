@@ -261,6 +261,16 @@
           "default": true,
           "description": "Debug|Trace: log the vwatch protocol exchange (commands sent and received) to the Debug Console. Useful while the debugger is stabilizing; turn off for quiet output."
         },
+        "qb64pe.debug.focusRunDebugViewOnStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "Debug|Focus Run and Debug view: reveal (and un-hide) the Run and Debug sidebar view when a QB64PE debug session starts (F5)."
+        },
+        "qb64pe.debug.focusDebugConsoleOnStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "Debug|Focus Debug Console: reveal (and un-hide) the Debug Console panel when a QB64PE debug session starts (F5)."
+        },
         "qb64pe.isFormatMetaCommandsMixedCaseEnabled": {
           "type": "boolean",
           "default": true,
