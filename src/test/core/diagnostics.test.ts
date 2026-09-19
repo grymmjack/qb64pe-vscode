@@ -54,6 +54,20 @@ describe("core/diagnostics", () => {
     ]);
   });
 
+  it("flags GOTO/GOSUB to a label defined only in another scope", () => {
+    // 'done' exists in SUB B, but the GOTO in SUB A cannot reach it. A jump to a
+    // label in the same scope (or module level) stays clean.
+    assert.deepStrictEqual(
+      check([
+        "GOTO top",
+        "top:",
+        "SUB A", "  GOTO done", "END SUB",
+        "SUB B", "  done:", "  GOTO done", "END SUB",
+      ]).filter((d) => d.includes("undefined-label")),
+      ["3:undefined-label:error:Label 'done' is not defined in this scope."]
+    );
+  });
+
   it("reports duplicate routines (sigil-insensitive), types, consts and labels", () => {
     assert.deepStrictEqual(check([
       "CONST C = 1", "CONST C = 2",

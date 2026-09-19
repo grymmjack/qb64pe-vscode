@@ -22,9 +22,9 @@ describe("core/flatten", () => {
     };
     const { text, origins } = flatten("/p/main.bas", io(files));
     const lines = text.split("\n");
-    // main line 1, neutralized directive, 3 include lines, main line 3
+    // main line 1, blanked directive, 3 include lines, main line 3
     assert.strictEqual(lines[0], "X = 1");
-    assert.ok(lines[1].startsWith("' [flattened $INCLUDE]"));
+    assert.strictEqual(lines[1], ""); // the $INCLUDE line is blanked
     assert.strictEqual(lines[2], "SUB Hi");
     assert.strictEqual(lines[5], "PRINT X");
 
@@ -33,13 +33,14 @@ describe("core/flatten", () => {
     assert.deepStrictEqual(origins[5], { file: "/p/main.bas", line: 3 });
   });
 
-  it("never emits the $INCLUDE directive verbatim", () => {
+  it("leaves no $INCLUDE or $INCLUDEONCE in the flattened output", () => {
     const files = {
-      "/p/main.bas": "'$INCLUDE:'lib.bm'",
-      "/p/lib.bm": "PRINT 1",
+      "/p/main.bas": ["'$INCLUDE:'lib.bm'", "PRINT 0"].join("\n"),
+      "/p/lib.bm": ["$INCLUDEONCE", "PRINT 1"].join("\n"),
     };
     const { text } = flatten("/p/main.bas", io(files));
-    assert.ok(!/^\s*'?\$INCLUDE\s*:/im.test(text.replace(/\[flattened \$INCLUDE\]/g, "")));
+    assert.ok(!/\$INCLUDE/i.test(text), "no $INCLUDE/$INCLUDEONCE should remain");
+    assert.ok(text.includes("PRINT 1")); // include body still inlined
   });
 
   it("honors $INCLUDEONCE across multiple includes", () => {
@@ -50,6 +51,7 @@ describe("core/flatten", () => {
     const { text } = flatten("/p/main.bas", io(files));
     const count = (text.match(/CONST A = 1/g) || []).length;
     assert.strictEqual(count, 1);
+    assert.ok(!/\$INCLUDEONCE/i.test(text));
   });
 
   it("re-inlines files without $INCLUDEONCE each time", () => {
@@ -74,7 +76,7 @@ describe("core/flatten", () => {
   it("marks a missing include instead of failing", () => {
     const files = { "/p/main.bas": "'$INCLUDE:'gone.bi'" };
     const { text } = flatten("/p/main.bas", io(files));
-    assert.ok(text.includes("missing $INCLUDE: gone.bi"));
+    assert.ok(text.includes("could not resolve include: gone.bi"));
   });
 
   it("rewrites DECLARE LIBRARY specs to keep the header findable", () => {
