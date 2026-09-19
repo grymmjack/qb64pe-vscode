@@ -75,6 +75,12 @@ export function flatten(entryFile: string, io: FlattenIO): FlattenResult {
     stack.add(absFile);
     lines.forEach((raw, i) => {
       const lineNo = i + 1;
+      // $INCLUDEONCE is meaningless once flattened — drop it (blank line keeps
+      // the line map exact so breakpoints still line up).
+      if (INCLUDEONCE_RE.test(raw)) {
+        emit(absFile, lineNo, "");
+        return;
+      }
       // Keep a moved DECLARE LIBRARY's header findable by absolutizing its spec.
       const lib = io.resolveLibrary ? DECLARE_LIBRARY_RE.exec(raw) : null;
       if (lib) {
@@ -84,14 +90,14 @@ export function flatten(entryFile: string, io: FlattenIO): FlattenResult {
       }
       const directive = fileDirectiveAt(raw);
       if (directive && directive.kind === "INCLUDE") {
-        // Neutralize the directive (never emit it verbatim, or the compiler
-        // would expand it again), then inline the target in its place.
-        emit(absFile, lineNo, "' [flattened $INCLUDE] " + directive.path);
+        // Replace the directive with a blank line (never emit it verbatim, or the
+        // compiler would expand it again) and inline the target in its place.
+        emit(absFile, lineNo, "");
         const target = io.resolve(directive.path, absFile);
         if (target) {
           process(target);
         } else {
-          emit(absFile, lineNo, "' [missing $INCLUDE: " + directive.path + "]");
+          emit(absFile, lineNo, "' [could not resolve include: " + directive.path + "]");
         }
         return;
       }
