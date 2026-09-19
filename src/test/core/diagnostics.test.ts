@@ -70,6 +70,23 @@ describe("core/diagnostics", () => {
     ]);
   });
 
+  it("allows the same label name in different scopes, but not within one scope", () => {
+    // Same label 'retry' in two different SUBs and at module level: all legal.
+    assert.deepStrictEqual(
+      check([
+        "retry:",
+        "SUB A", "  retry:", "  GOTO retry", "END SUB",
+        "SUB B", "  retry:", "  GOTO retry", "END SUB",
+      ]).filter((d) => d.includes("duplicate")),
+      []
+    );
+    // But repeating a label within the same routine is still a duplicate.
+    assert.deepStrictEqual(
+      check(["SUB A", "  dup:", "  dup:", "END SUB"]).filter((d) => d.includes("duplicate")),
+      ["2:duplicate:error:Label 'dup' is already defined (diag.bas:2)."]
+    );
+  });
+
   it("hints about locals that are never read, ignoring parameters and FOR counters", () => {
     assert.deepStrictEqual(check([
       "SUB S (p AS LONG)",
