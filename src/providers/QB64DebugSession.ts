@@ -1770,6 +1770,7 @@ export class QB64DebugSession extends LoggingDebugSession {
       const decorate = (this.decorateConsole ??= cfg.get<boolean>("debug.decorateConsole", true));
       this.divider("🛠️  Build command");
       this.output((decorate ? `  ${ANSI.cyan}${cmdStr}${ANSI.reset}` : `  ${cmdStr}`) + "\n");
+      this.rule();
 
       const t0 = Date.now();
       this.status(
@@ -1906,6 +1907,15 @@ export class QB64DebugSession extends LoggingDebugSession {
     return `${parts.join(" ")} (${secs})`;
   }
 
+  /** A plain full-width horizontal rule (no title), to close a section. */
+  private rule(): void {
+    const decorate = (this.decorateConsole ??= vscode.workspace
+      .getConfiguration("qb64pe")
+      .get<boolean>("debug.decorateConsole", true));
+    const line = "─".repeat(64);
+    this.output((decorate ? `${ANSI.cyan}${line}${ANSI.reset}` : line) + "\n");
+  }
+
   /** A full-width rule with a centered-ish title, to separate F5 runs. */
   private divider(title: string): void {
     const decorate = (this.decorateConsole ??= vscode.workspace
@@ -1934,7 +1944,6 @@ export class QB64DebugSession extends LoggingDebugSession {
         .get<boolean>("debug.decorateConsole", true));
       const n = (x: number) => x.toLocaleString("en-US");
       const dim = (t: string) => (decorate ? `${ANSI.dim}${t}${ANSI.reset}` : t);
-      const emit = (t: string) => this.output(`${dim("  " + t)}\n`);
 
       // Files / directories / lines from the flatten origins + text.
       const files = new Set<string>();
@@ -1982,20 +1991,44 @@ export class QB64DebugSession extends LoggingDebugSession {
           builtin.set(key, (builtin.get(key) ?? 0) + 1);
         }
       }
-      const builtinStr = [...builtin.entries()]
-        .sort((a, b) => b[1] - a[1])
-        .map(([t, c]) => `${t} ${n(c)}`)
-        .join(", ");
-      const extra: string[] = [];
-      if (udtVars) extra.push(`${n(udtVars)} UDT-typed in ${n(udtTypes.size)} type${udtTypes.size === 1 ? "" : "s"}`);
-      if (untyped) extra.push(`${n(untyped)} untyped`);
-      const extraStr = extra.length ? `  (${extra.join(" · ")})` : "";
+      // ---- pretty aligned table ----
+      const col = (t: string, c: keyof typeof ANSI) => (decorate ? `${ANSI[c]}${t}${ANSI.reset}` : t);
+      const lbl = (t: string, w: number) => col(t.padEnd(w), "cyan");
+      const val = (v: number, w: number) => col(n(v).padStart(w), "green");
+      const header = (t: string) =>
+        this.output((decorate ? `${ANSI.magenta}${ANSI.bold}  ${t}${ANSI.reset}` : `  ${t}`) + "\n");
 
-      const head = `📊 Program: ${n(files.size)} file${files.size === 1 ? "" : "s"} · ${n(dirs.size)} ${dirs.size === 1 ? "dir" : "dirs"} · ${n(lines.length)} lines (${n(code)} code)`;
-      this.output((decorate ? `${ANSI.magenta}${ANSI.bold}  ${head}${ANSI.reset}` : `  ${head}`) + "\n");
-      emit(`SUBs ${n(subs)} · FUNCTIONs ${n(funcs)} · TYPEs ${n(types)} · CONSTs ${n(consts)} · Labels ${n(labels)}`);
-      if (vars.length) emit(`Variables ${n(vars.length)} — ${builtinStr}${extraStr}`);
-      if (ext.length) emit(`DECLARE LIBRARY: ${n(ext.length)} routine${ext.length === 1 ? "" : "s"} · ${n(libs.size)} librar${libs.size === 1 ? "y" : "ies"}`);
+      // Two-column key/value grid.
+      header("📊 Program");
+      const grid: Array<[string, number, string, number]> = [
+        ["Files", files.size, "SUBs", subs],
+        ["Directories", dirs.size, "FUNCTIONs", funcs],
+        ["Lines", lines.length, "TYPEs", types],
+        ["Code lines", code, "CONSTs", consts],
+        ["Libraries", libs.size, "Labels", labels],
+        ["Lib routines", ext.length, "Variables", vars.length],
+      ];
+      const w0 = Math.max(...grid.map((r) => r[0].length));
+      const w1 = Math.max(...grid.map((r) => n(r[1]).length));
+      const w2 = Math.max(...grid.map((r) => r[2].length));
+      const w3 = Math.max(...grid.map((r) => n(r[3]).length));
+      for (const [a, b, c, d] of grid) {
+        this.output(`    ${lbl(a, w0)}  ${val(b, w1)}      ${lbl(c, w2)}  ${val(d, w3)}\n`);
+      }
+
+      // Variables by type — aligned, counts right-justified.
+      const entries = [...builtin.entries()].sort((a, b) => b[1] - a[1]);
+      if (entries.length || udtVars || untyped) {
+        header("🔤 Variables by type");
+        const rows: Array<[string, number, string?]> = entries.map(([t, c]) => [t, c]);
+        if (udtVars) rows.push(["UDT-typed", udtVars, `in ${n(udtTypes.size)} type${udtTypes.size === 1 ? "" : "s"}`]);
+        if (untyped) rows.push(["untyped", untyped]);
+        const tw = Math.max(...rows.map((r) => r[0].length));
+        const cw = Math.max(...rows.map((r) => n(r[1]).length));
+        for (const [t, c, note] of rows) {
+          this.output(`      ${lbl(t, tw)}  ${val(c, cw)}${note ? "  " + dim(note) : ""}\n`);
+        }
+      }
     } catch {
       /* stats are cosmetic — never block a debug run */
     }

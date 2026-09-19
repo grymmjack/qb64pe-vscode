@@ -2,6 +2,11 @@
 
 All notable changes to the "QB64 PE" extension will be documented in this file.
 
+## 0.20.20
+
+- Debugger: the program "character sheet" is now a **pretty aligned table** — a two-column key/value grid (Files/SUBs, Directories/FUNCTIONs, Lines/TYPEs, Code/CONSTs, Libraries/Labels, Lib routines/Variables) and a right-justified **Variables by type** list, with coloured labels (cyan) and counts (green) under magenta section headers.
+- Debugger: added a closing **divider after the build command**, so the command sits in its own bracketed section above the compile step.
+
 ## 0.20.19
 
 - Docs/clarity: corrected the `qb64pe.debug.maxCompilerProcesses` description. Analysis of a real 182k-line project's compile log showed a per-edit **debug** rebuild compiles the whole program as **one monolithic C++ translation unit** (`qbx.cpp` including the flattened source + `$DEBUG`), which a single `g++`/`cc1plus` can't parallelize — so `-f:MaxCompilerProcesses` only helps clean/first builds (the QB64PE runtime), not the per-edit rebuild. The setting is kept (harmless, helps clean builds), but the real speed-up for repeat runs is the byte-identical cache (`qb64pe.debug.cacheBuild`); for fast iteration, use a non-`$DEBUG` build and reserve F5 for actual stepping.
