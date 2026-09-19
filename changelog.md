@@ -2,6 +2,10 @@
 
 All notable changes to the "QB64 PE" extension will be documented in this file.
 
+## 0.20.19
+
+- Docs/clarity: corrected the `qb64pe.debug.maxCompilerProcesses` description. Analysis of a real 182k-line project's compile log showed a per-edit **debug** rebuild compiles the whole program as **one monolithic C++ translation unit** (`qbx.cpp` including the flattened source + `$DEBUG`), which a single `g++`/`cc1plus` can't parallelize — so `-f:MaxCompilerProcesses` only helps clean/first builds (the QB64PE runtime), not the per-edit rebuild. The setting is kept (harmless, helps clean builds), but the real speed-up for repeat runs is the byte-identical cache (`qb64pe.debug.cacheBuild`); for fast iteration, use a non-`$DEBUG` build and reserve F5 for actual stepping.
+
 ## 0.20.18
 
 - Debugger: the compile-time is now shown as a **human-readable duration** with the raw seconds in parentheses — e.g. `Compile succeeded in 9m 5.6s (545.6s)` (under a minute stays as just `45.6s`).
