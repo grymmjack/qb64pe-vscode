@@ -269,24 +269,35 @@ export async function activate(context: vscode.ExtensionContext) {
   // opt-in). Revealing also un-hides a pane that is currently collapsed. We
   // focus the Run and Debug view last so keyboard focus lands there.
   context.subscriptions.push(
-    vscode.debug.onDidStartDebugSession((session) => {
+    vscode.debug.onDidStartDebugSession(async (session) => {
       if (session.type !== "QB64PE") {
         return;
       }
       const cfg = vscode.workspace.getConfiguration("qb64pe");
-      // Reveal the Run and Debug view first, then the Debug Console, so when
-      // both are enabled keyboard focus ends on the console (where program
-      // output and the trace appear). Each `.focus` command also un-hides a
-      // collapsed pane. A short delay lets VS Code finish its own start-up
-      // layout (it may reveal the debug view itself) before we take over.
-      setTimeout(() => {
-        if (cfg.get<boolean>("debug.focusRunDebugViewOnStart", true)) {
-          vscode.commands.executeCommand("workbench.view.debug");
+      const wantView = cfg.get<boolean>("debug.focusRunDebugViewOnStart", true);
+      const wantConsole = cfg.get<boolean>("debug.focusDebugConsoleOnStart", true);
+      if (!wantView && !wantConsole) {
+        return;
+      }
+      // Let VS Code finish its own session-start layout before we reveal panes.
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      const reveal = async (command: string) => {
+        try {
+          await vscode.commands.executeCommand(command);
+        } catch {
+          /* command unavailable in this VS Code build — try the next */
         }
-        if (cfg.get<boolean>("debug.focusDebugConsoleOnStart", true)) {
-          vscode.commands.executeCommand("workbench.panel.repl.view.focus");
-        }
-      }, 150);
+      };
+      // Reveal the Run and Debug view first, then the Debug Console last, so
+      // when both are on the console ends focused (where output/trace appear).
+      // Each `.focus` command also un-hides a collapsed pane.
+      if (wantView) {
+        await reveal("workbench.view.debug");
+      }
+      if (wantConsole) {
+        await reveal("workbench.debug.action.focusRepl");
+        await reveal("workbench.panel.repl.view.focus");
+      }
     })
   );
 

@@ -2,9 +2,10 @@
 
 All notable changes to the "QB64 PE" extension will be documented in this file.
 
-## 0.20.7
+## 0.20.8
 
-- Formatter: keyword casing (`qb64pe.formatMode` with `isFormatEnabled` on) now works even when `qb64pe.helpPath` is not set. Casing depended on finding a help file for each token to recognize it as a keyword, and `TokenInfo` only read the user's `helpPath` — so with it unset, nothing was ever treated as a keyword and casing silently did nothing. It now falls back to the extension's bundled `help/` directory (the same snapshot hover help uses).
+- Formatter: keyword casing (`qb64pe.formatMode` with `isFormatEnabled` on) now actually rewrites keyword case. It previously decided whether a token was a keyword by looking for a help file for it, so casing did nothing unless `qb64pe.helpPath` pointed at the right files. Casing now consults the built-in 774-keyword list directly (independent of help files), so `Upper Case`/`Lower Case`/`Mixed Case` apply reliably. (Hover/F1 also fall back to the bundled `help/` when `helpPath` is unset.)
+- Debugger: made the F5 debug-console reveal more reliable (awaited, slightly longer delay, and it tries both focus commands) so the Debug Console actually shows when `qb64pe.debug.focusDebugConsoleOnStart` is on.
 - Formatter: removed the "Do you want to start the long running process?" modal on files over 2000 lines. It popped on every format-on-save of a large file (even for the fast whitespace-only indent pass); responsiveness is handled by the editor's cancellation token instead. (Reminder: keyword casing/spacing is only applied when `qb64pe.isFormatEnabled` is on — it's off by default because it rewrites code, not just whitespace; `qb64pe.formatMode` picks the casing.)
 - Debugger: F5 now starts the **QB64PE** debugger directly on a `.bas`/`.bi`/`.bm` file — no more "Select debugger" prompt. (The debugger is now declared as the default for the QB64PE language.)
 - Keybindings: `Shift+Alt+L` now opens compilelog.txt (was the linter; the old `Ctrl+Alt+Shift+L` binding is removed). The linter no longer has a default keybinding — it was briefly on `Ctrl+Shift+L`, which is VS Code's built-in "Select All Occurrences of Find Match", so to avoid clobbering that default it's now run from the editor right-click menu or the Command Palette ("QB64PE: Lint"). Bind it to a key of your choice if you like. (The `Ctrl+Shift+L` lowercase-transform binding is also removed; `Ctrl+Shift+U` still uppercases.) Note: a matching entry in your personal keybindings.json overrides the extension's defaults.
