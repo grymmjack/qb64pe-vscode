@@ -456,11 +456,6 @@
         "when": "explorerFocus"
       },
       {
-        "command": "extension.runLint",
-        "key": "ctrl+shift+l",
-        "when": "editorLangId == 'QB64PE' && editorTextFocus"
-      },
-      {
         "command": "extension.openCurrentFileInQB64PE",
         "key": "alt+q",
         "when": "editorLangId == 'QB64PE' && editorTextFocus"
