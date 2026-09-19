@@ -2,7 +2,7 @@
   "name": "qb64pe",
   "displayName": "QB64PE",
   "description": "QB64PE (Phoenix Edition) language support for Visual Studio Code with intelligent code completion and 500+ keywords.",
-  "version": "0.20.4",
+  "version": "0.20.14",
   "engines": {
     "vscode": "^1.78.1"
   },
@@ -32,7 +32,8 @@
       "editor.formatOnSave": true,
       "editor.wordWrap": "off",
       "editor.autoIndent": true,
-      "explorer.autoReveal": true
+      "explorer.autoReveal": true,
+      "editor.colorDecorators": true
     }
   },
   "contributes": {
@@ -50,6 +51,9 @@
       {
         "type": "QB64PE",
         "label": "QB64PE Debugger",
+        "languages": [
+          "QB64PE"
+        ],
         "runtime": "node",
         "configurationAttributes": {
           "launch": {
@@ -192,6 +196,50 @@
           "default": true,
           "description": "Format|Indent SUBs and FUNCTIONs: indent the bodies of SUBs and FUNCTIONs. Turn off to keep their bodies at the left margin. (QB64PE IDE: \"Indent SUBs and FUNCTIONs\".)"
         },
+        "qb64pe.formatAlignAssignments": {
+          "type": "boolean",
+          "default": true,
+          "description": "Align: line up '=' within consecutive assignment blocks (pads the left-hand side). Used by the 'QB64PE: Align Source' command, not by Format Document."
+        },
+        "qb64pe.formatAlignDeclarations": {
+          "type": "boolean",
+          "default": true,
+          "description": "Align: line up 'AS' within TYPE/DIM declaration groups. Used by 'QB64PE: Align Source'."
+        },
+        "qb64pe.formatAlignCase": {
+          "type": "boolean",
+          "default": true,
+          "description": "Align: line up 'CASE \"KEY\": lhs = rhs' inline assignments (two columns: the ':' and the '='). Used by 'QB64PE: Align Source'."
+        },
+        "qb64pe.formatAlignColons": {
+          "type": "boolean",
+          "default": true,
+          "description": "Align: line up ':' statement separators within a group. Used by 'QB64PE: Align Source'."
+        },
+        "qb64pe.formatAlignComments": {
+          "type": "boolean",
+          "default": true,
+          "description": "Align: line up inline ' comments to a shared column. Used by 'QB64PE: Align Source'."
+        },
+        "qb64pe.formatAlignScope": {
+          "type": "string",
+          "enum": [
+            "block",
+            "section"
+          ],
+          "enumDescriptions": [
+            "Group by SUB/FUNCTION/TYPE block and indent level (whole-block alignment).",
+            "Group between blank / pure-comment delimiter lines (section alignment)."
+          ],
+          "default": "block",
+          "description": "Align: how AS / colon / comment alignment groups lines. Used by 'QB64PE: Align Source'."
+        },
+        "qb64pe.formatAlignGap": {
+          "type": "number",
+          "default": 1,
+          "minimum": 1,
+          "description": "Align: spaces to leave at each alignment column (before '=', 'AS', ':', or the comment). Used by 'QB64PE: Align Source'."
+        },
         "qb64pe.debug.basePort": {
           "type": "number",
           "default": 9000,
@@ -216,6 +264,21 @@
           "type": "boolean",
           "default": true,
           "description": "Debug|Trace: log the vwatch protocol exchange (commands sent and received) to the Debug Console. Useful while the debugger is stabilizing; turn off for quiet output."
+        },
+        "qb64pe.debug.arrayExpandLimit": {
+          "type": "number",
+          "default": 256,
+          "description": "Debug|Array expansion: max elements to show when expanding an array in the VARIABLES view. Arrays with literal DIM bounds within this limit are expandable (e.g. colW(0)..colW(10)); larger, dynamic (REDIM), or multi-dimensional arrays fall back to \"Watch name(index)\". Set to 0 to disable array expansion."
+        },
+        "qb64pe.debug.focusRunDebugViewOnStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "Debug|Focus Run and Debug view: reveal (and un-hide) the Run and Debug sidebar view when a QB64PE debug session starts (F5)."
+        },
+        "qb64pe.debug.focusDebugConsoleOnStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "Debug|Focus Debug Console: reveal (and un-hide) the Debug Console panel when a QB64PE debug session starts (F5)."
         },
         "qb64pe.isFormatMetaCommandsMixedCaseEnabled": {
           "type": "boolean",
@@ -365,7 +428,12 @@
       },
       {
         "command": "extension.openCompileLog",
-        "key": "ctrl+alt+shift+l",
+        "key": "shift+alt+l",
+        "when": "editorLangId == 'QB64PE' && editorTextFocus"
+      },
+      {
+        "command": "qb64pe.debugRebuild",
+        "key": "ctrl+alt+shift+f5",
         "when": "editorLangId == 'QB64PE' && editorTextFocus"
       },
       {
@@ -399,11 +467,6 @@
         "when": "explorerFocus"
       },
       {
-        "command": "extension.runLint",
-        "key": "shift+alt+l",
-        "when": "editorLangId == 'QB64PE' && editorTextFocus"
-      },
-      {
         "command": "extension.openCurrentFileInQB64PE",
         "key": "alt+q",
         "when": "editorLangId == 'QB64PE' && editorTextFocus"
@@ -412,17 +475,22 @@
         "command": "editor.action.transformToUppercase",
         "key": "ctrl+shift+u",
         "when": "editorLangId == 'QB64PE' && editorTextFocus"
-      },
-      {
-        "command": "editor.action.transformToLowercase",
-        "key": "ctrl+shift+l",
-        "when": "editorLangId == 'QB64PE' && editorTextFocus"
       }
     ],
     "commands": [
       {
         "command": "qb64pe.buildHelp",
         "title": "Build Help Pages (for offline hover/F1 links)",
+        "category": "QB64PE"
+      },
+      {
+        "command": "qb64pe.alignSource",
+        "title": "Align Source (=, AS, CASE, :, comments)",
+        "category": "QB64PE"
+      },
+      {
+        "command": "qb64pe.debugRebuild",
+        "title": "Debug (Force Rebuild, ignore cache)",
         "category": "QB64PE"
       },
       {

@@ -2,6 +2,41 @@
 
 All notable changes to the "QB64 PE" extension will be documented in this file.
 
+## 0.20.14
+
+- Editor: colour swatches are enabled for QB64PE files by default (`[QB64PE]` sets `editor.colorDecorators: true`). If you still don't see them, make sure `editor.colorDecorators` isn't turned off globally. (The swatches themselves shipped in 0.20.11.)
+- Debugger: new command **QB64PE: Debug (Force Rebuild, ignore cache)** (`qb64pe.debugRebuild`, `Ctrl+Alt+Shift+F5` in a QB64PE editor) — starts a debug session that recompiles even when `qb64pe.debug.cacheBuild` is on (does not clobber any VS Code default).
+- Docs: README now has a **Keyboard shortcuts** section — the extension's keys (Help, compile log, Force Rebuild, uppercase, open-in-IDE, …) plus handy built-in VS Code debug/edit shortcuts — and the stale linter-shortcut note is corrected.
+
+## 0.20.12
+
+- Debugger: **TYPE members now show their values** in the VARIABLES view, even for TYPEs that contain variable-length `AS STRING` members. Previously a single variable-length string (common as the first field) made every following member show `<?>`, because its size was unknown and broke the byte-offset chain. A variable-length string in a TYPE occupies a fixed 8-byte descriptor slot (verified against QB64PE), so offsets now stay correct and the numeric/fixed members read live. The string field itself shows `<string>` (its text lives outside the record and isn't readable by a raw byte read).
+- Debugger: **hovering a variable in the editor shows its value while debugging** — including member paths (`CFG.FULLSCREEN`), array elements (`colW(3)`) and chains (`p.pos.x`), not just bare identifiers. (Added an evaluatable-expression provider so VS Code evaluates the whole expression under the cursor.)
+
+## 0.20.11
+
+- Editor: **colour chips + picker for QB64 colour calls.** `_RGB32`/`_RGBA32`/`_RGB`/`_RGBA` and `_HSB`/`_HSB32`/`_HSBA`/`_HSBA32` calls with integer-literal arguments now show an inline colour swatch; click it for the native colour picker, and the call is rewritten in place (function name and argument count preserved; HSB stays HSB). Works anywhere the call appears — inside `COLOR`, `LINE`, `PAINT`, `_PRINTSTRING`, etc. Calls with variable/expression arguments are left alone, and HSB uses QB64's exact ranges (H 0–360, S/B 0–100, HSBA alpha 0–100). Bare palette-index colours (e.g. `COLOR 15, 4`) have no fixed RGB and are not chipped.
+
+## 0.20.10
+
+- Debugger: **arrays now expand in the VARIABLES view.** A 1-D array whose bounds are literal in its `DIM`/`REDIM` (e.g. `DIM colW(10)`) is shown as an expandable node listing `colW(0)`, `colW(1)`, … `colW(10)` — no need to add a watch for each index. Elements are read live and shown in numeric order. Bounds are recovered from the source declaration (the runtime doesn't expose them) and `OPTION BASE` is honored, so out-of-bounds elements are never read. Dynamic (`REDIM a(n)`), multi-dimensional, and UDT arrays, or any array larger than `qb64pe.debug.arrayExpandLimit` (default 256), keep the previous "Watch name(index)" hint.
+
+## 0.20.9
+
+- Debugger: the debug UI now appears the **instant F5 is pressed**, before compilation — so you get immediate feedback (and see the "Flattened…/Compiling…" output live) instead of the panes only showing up after a stalled compile finishes. Previously the reveal was tied to the session-started event, which for QB64PE fires only after the compile completes. This applies to both `qb64pe.debug.focusRunDebugViewOnStart` and `qb64pe.debug.focusDebugConsoleOnStart`.
+
+## 0.20.8
+
+- Formatter: keyword casing (`qb64pe.formatMode` with `isFormatEnabled` on) now actually rewrites keyword case. It previously decided whether a token was a keyword by looking for a help file for it, so casing did nothing unless `qb64pe.helpPath` pointed at the right files. Casing now consults the built-in 774-keyword list directly (independent of help files), so `Upper Case`/`Lower Case`/`Mixed Case` apply reliably. (Hover/F1 also fall back to the bundled `help/` when `helpPath` is unset.)
+- Debugger: made the F5 debug-console reveal more reliable (awaited, slightly longer delay, and it tries both focus commands) so the Debug Console actually shows when `qb64pe.debug.focusDebugConsoleOnStart` is on.
+- Formatter: removed the "Do you want to start the long running process?" modal on files over 2000 lines. It popped on every format-on-save of a large file (even for the fast whitespace-only indent pass); responsiveness is handled by the editor's cancellation token instead. (Reminder: keyword casing/spacing is only applied when `qb64pe.isFormatEnabled` is on — it's off by default because it rewrites code, not just whitespace; `qb64pe.formatMode` picks the casing.)
+- Debugger: F5 now starts the **QB64PE** debugger directly on a `.bas`/`.bi`/`.bm` file — no more "Select debugger" prompt. (The debugger is now declared as the default for the QB64PE language.)
+- Keybindings: `Shift+Alt+L` now opens compilelog.txt (was the linter; the old `Ctrl+Alt+Shift+L` binding is removed). The linter no longer has a default keybinding — it was briefly on `Ctrl+Shift+L`, which is VS Code's built-in "Select All Occurrences of Find Match", so to avoid clobbering that default it's now run from the editor right-click menu or the Command Palette ("QB64PE: Lint"). Bind it to a key of your choice if you like. (The `Ctrl+Shift+L` lowercase-transform binding is also removed; `Ctrl+Shift+U` still uppercases.) Note: a matching entry in your personal keybindings.json overrides the extension's defaults.
+- Debugger: on F5, optionally reveal the debug UI. Two independent toggles (both on by default): `qb64pe.debug.focusRunDebugViewOnStart` (Run and Debug sidebar view) and `qb64pe.debug.focusDebugConsoleOnStart` (Debug Console panel). When both are on, the Debug Console ends focused; revealing also un-hides a pane that was collapsed.
+- New command **QB64PE: Align Source** (`qb64pe.alignSource`): column-aligns the active file (or the selected lines) — lines up `=` in assignment blocks, `AS` in TYPE/DIM declarations, `CASE "KEY":` inline assignments (two columns), `:` statement separators, and inline `'` comments. Each pass has its own on/off setting (`qb64pe.formatAlign*`), plus `qb64pe.formatAlignScope` (block vs section grouping) and `qb64pe.formatAlignGap`. Alignment is a deliberate command, **not** part of Format Document / format-on-save. (Ports the behaviour of the `align-qb64pe.py` tool; verified byte-for-byte identical across a 514-file corpus.)
+- Fix: the formatter (keyword-casing/spacing pass) no longer mangles metacommands — e.g. `$CONSOLE:ONLY` is left intact instead of being rewritten to `$CONSOLE : ONLY` (which fails to compile). Metacommand lines (`$CONSOLE`, `$DYNAMIC`, `$ASSERTS:…`, `'$INCLUDE:'…'`, `$IF …`, etc.) are now detected via the shared lexer and skipped by the content pass, so no per-metacommand special-casing is needed.
+- Fix: **Open compilelog.txt** now resolves the log under the QB64PE compiler/install path instead of a workspace-relative `./internal/temp/…` (which happened when `qb64pe.compilerPath` was empty), and it checks each `temp`/`temp1`…`temp9` folder actually contains the file before opening — so the fallback search works and you no longer get a phantom relative path.
+
 ## 0.20.4
 
 - Debugger: the flattened `.debug.*` file no longer contains any `$INCLUDE` or `$INCLUDEONCE` metacommands. Every include is inlined, so the directives are dropped (replaced by blank lines that keep the line map exact, so breakpoints and stepping still line up). This prevents the compiler from re-expanding an include inside the already-flattened source.

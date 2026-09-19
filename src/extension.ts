@@ -28,6 +28,8 @@ import { RenameProvider } from "./providers/RenameProvider";
 import { DocumentHighlightProvider } from "./providers/DocumentHighlightProvider";
 import { WorkspaceSymbolProvider } from "./providers/WorkspaceSymbolProvider";
 import { FoldingRangeProvider } from "./providers/FoldingRangeProvider";
+import { ColorProvider } from "./providers/ColorProvider";
+import { QB64EvaluatableExpressionProvider } from "./providers/EvaluatableExpressionProvider";
 import { IndexDiagnostics } from "./providers/IndexDiagnostics";
 import { CallHierarchyProvider } from "./providers/CallHierarchyProvider";
 import {
@@ -36,6 +38,7 @@ import {
 } from "./providers/SemanticTokensProvider";
 import { WorkspaceSymbolIndex } from "./providers/WorkspaceSymbolIndex";
 import { TodoTreeProvider } from "./TodoTreeProvider";
+import { align, AlignOptions } from "./core/align";
 
 // To switch to debug mode the scripts in the package.json need to be changed.
 // https://code.visualstudio.com/api/working-with-extensions/bundling-extension#Publishing
@@ -134,6 +137,16 @@ export async function activate(context: vscode.ExtensionContext) {
       renumberLines();
     })
   );
+  context.subscriptions.push(
+    vscode.commands.registerCommand("qb64pe.alignSource", () => {
+      alignSource();
+    })
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand("qb64pe.debugRebuild", () => {
+      debugRebuild();
+    })
+  );
 
   // Register Providers here
   // One workspace-wide symbol index shared by every language provider.
@@ -221,6 +234,17 @@ export async function activate(context: vscode.ExtensionContext) {
     )
   );
 
+  context.subscriptions.push(
+    vscode.languages.registerColorProvider(documentSelector, new ColorProvider())
+  );
+
+  context.subscriptions.push(
+    vscode.languages.registerEvaluatableExpressionProvider(
+      documentSelector,
+      new QB64EvaluatableExpressionProvider()
+    )
+  );
+
   const semanticTokensProvider = new SemanticTokensProvider(workspaceIndex);
   context.subscriptions.push(
     semanticTokensProvider,
@@ -259,6 +283,11 @@ export async function activate(context: vscode.ExtensionContext) {
     )
   );
 
+  // The debug UI is revealed the moment F5 is pressed (before compilation) from
+  // QB64PEDebugConfigurationProvider.resolveDebugConfiguration — see
+  // revealDebugPanes(). onDidStartDebugSession fires too late for QB64PE (after
+  // the compile), so it is intentionally not used for this.
+
   decoratorFunctions.setupDecorate(workspaceIndex);
   vscodeFunctions.createFiles();
   gitFunctions.createGitignore();
@@ -291,9 +320,16 @@ export async function activate(context: vscode.ExtensionContext) {
 export function openCompileLog() {
   const config = vscode.workspace.getConfiguration("qb64pe");
   try {
-    let baseFolder: string = path.dirname(config.get("compilerPath"));
+    // The compile log lives under the QB64PE root's internal/<temp*> folder.
+    // Prefer the compiler's directory (compilerPath points at the executable),
+    // and fall back to installPath (already the QB64PE root). Resolve to an
+    // absolute path so an unset/bare setting can't collapse to "." and open
+    // "./internal/temp/compilelog.txt" relative to the workspace.
+    const compilerPath = (config.get<string>("compilerPath") ?? "").trim();
+    const installPath = (config.get<string>("installPath") ?? "").trim();
+    let baseFolder = compilerPath ? path.dirname(compilerPath) : installPath;
     if (baseFolder) {
-      baseFolder = baseFolder.replaceAll("\\", "/");
+      baseFolder = path.resolve(baseFolder).replaceAll("\\", "/");
       if (findAndOpenCompileLog(baseFolder, "temp")) {
         return;
       } else if (findAndOpenCompileLog(baseFolder, "temp1")) {
@@ -319,7 +355,7 @@ export function openCompileLog() {
       }
     } else {
       vscode.window.showErrorMessage(
-        "The setting qb64pe.installPath must be set."
+        "Set qb64pe.compilerPath (or qb64pe.installPath) to locate compilelog.txt."
       );
     }
   } catch (error) {
@@ -339,7 +375,10 @@ function findAndOpenCompileLog(
 ) {
   try {
     const logPath = `${qb64InstallPath}/internal/${tempFolderName}/compilelog.txt`;
-    if (logPath) {
+    // Only open a log that actually exists — otherwise the first candidate
+    // (temp) would always "succeed" and the temp1..temp9 fallbacks (and the
+    // not-found message) would be unreachable.
+    if (fs.existsSync(logPath)) {
       vscode.commands.executeCommand("vscode.open", vscode.Uri.file(logPath));
       return true;
     }
@@ -372,6 +411,78 @@ export function removeLineNumbers() {
     vscode.workspace.applyEdit(edit);
   } catch (error) {
     vscode.window.showErrorMessage(error);
+  }
+}
+
+/**
+ * Start a debug session that forces a fresh compile, ignoring the build cache
+ * (qb64pe.debug.cacheBuild). Useful when the source is unchanged but you still
+ * want a rebuild (e.g. after editing a resource the cache can't see). Passes
+ * cacheBuild:false on the launch config, which QB64DebugSession honors over the
+ * setting; the fresh build is then cached for subsequent normal F5 runs.
+ */
+export async function debugRebuild(): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor || editor.document.languageId !== "QB64PE") {
+    vscode.window.showWarningMessage("Open a QB64PE (.bas) file to rebuild and debug.");
+    return;
+  }
+  const folder = vscode.workspace.getWorkspaceFolder(editor.document.uri);
+  await vscode.debug.startDebugging(folder, {
+    type: "QB64PE",
+    request: "launch",
+    name: "QB64PE: Debug (Force Rebuild)",
+    program: editor.document.fileName,
+    cacheBuild: false,
+  });
+}
+
+/**
+ * Column-align the active QB64PE document (or the selected line range) using
+ * the qb64pe.formatAlign* settings. This is a deliberate, on-demand command —
+ * alignment is intentionally NOT part of Format Document / format-on-save,
+ * because padding interior columns is more invasive than the whitespace-only
+ * indentation the formatter does.
+ */
+export function alignSource() {
+  try {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+      return;
+    }
+    const config = vscode.workspace.getConfiguration("qb64pe");
+    const scope = config.get<string>("formatAlignScope", "block");
+    const options: AlignOptions = {
+      assignments: config.get<boolean>("formatAlignAssignments", true),
+      declarations: config.get<boolean>("formatAlignDeclarations", true),
+      case: config.get<boolean>("formatAlignCase", true),
+      colons: config.get<boolean>("formatAlignColons", true),
+      comments: config.get<boolean>("formatAlignComments", true),
+      scope: scope === "section" ? "section" : "block",
+      gap: Math.max(1, config.get<number>("formatAlignGap", 1)),
+    };
+
+    const document = editor.document;
+    // Align the selected whole-line range, or the whole document when nothing
+    // is selected. Grouping is self-contained within the range.
+    const selection = editor.selection;
+    const startLine = selection.isEmpty ? 0 : selection.start.line;
+    const endLine = selection.isEmpty ? document.lineCount - 1 : selection.end.line;
+    const range = new vscode.Range(
+      new vscode.Position(startLine, 0),
+      document.lineAt(endLine).range.end
+    );
+
+    const original = document.getText(range);
+    const aligned = align(original, options);
+    if (aligned === original) {
+      return; // nothing to change — don't push an empty edit
+    }
+    const edit = new vscode.WorkspaceEdit();
+    edit.replace(document.uri, range, aligned);
+    vscode.workspace.applyEdit(edit);
+  } catch (error) {
+    vscode.window.showErrorMessage(`Error in alignSource: ${error}`);
   }
 }
 

@@ -1,8 +1,10 @@
 "use strict";
 import * as fs from "fs";
+import * as path from "path";
 import * as vscode from "vscode";
 import * as logFunctions from "./logFunctions";
 import * as commonFunctions from "./commonFunctions";
+import { isKeyword as isCoreKeyword } from "./core/keywords";
 
 export class TokenInfo {
   private static helpFileCache: Map<string, string> | null = null;
@@ -54,6 +56,19 @@ export class TokenInfo {
 
     let helpPath: string = config.get("helpPath");
 
+    // Keyword detection (and therefore keyword casing in the formatter) hinges
+    // on finding a help file for the token. When qb64pe.helpPath is unset or
+    // invalid, fall back to the extension's own bundled help/ directory — the
+    // same snapshot HelpService uses — so casing works out of the box instead
+    // of silently treating every token as a non-keyword. (__dirname is out/;
+    // the bundled help/ sits next to it at the extension root.)
+    if (!helpPath || !fs.existsSync(helpPath)) {
+      const bundled = path.join(__dirname, "..", "help");
+      if (fs.existsSync(bundled)) {
+        helpPath = bundled;
+      }
+    }
+
     // Use case-insensitive lookup
     const helpFile = TokenInfo.findHelpFile(helpPath, this.keyword);
     if (helpFile) {
@@ -71,10 +86,13 @@ export class TokenInfo {
       return;
     }
 
-    // Not found - reset keyword and mark as not a keyword
+    // No help file found. That does NOT mean it isn't a keyword — help lookup
+    // depends on helpPath having the right files. Keyword *casing* must not hinge
+    // on that, so getWordFormatted() consults the authoritative core keyword list
+    // (independent of any help files) to decide whether to case this token.
     this.keyword = token;
     this.isKeyword = false;
-    this.WordFormatted = token;
+    this.WordFormatted = this.getWordFormatted(config);
   }
 
   /**
@@ -281,23 +299,26 @@ export class TokenInfo {
    * @returns
    */
   private getWordFormatted(config: vscode.WorkspaceConfiguration) {
-    if (!this.isKeyword) {
+    const lowerToken = this.token.toLowerCase();
+
+    // Metacommand / version-info tokens have their own mixed-case handling below.
+    const isMetaToken =
+      this.token.startsWith("$") ||
+      this.token.startsWith("'$") ||
+      lowerToken == "companyname" ||
+      lowerToken == "fileversion#" ||
+      lowerToken == "productversion" ||
+      lowerToken == "legalcopyright";
+
+    // Only case real QB64 keywords. Use the core keyword list (not help-file
+    // presence), so casing works regardless of whether qb64pe.helpPath is set.
+    if (!isCoreKeyword(this.token) && !isMetaToken) {
       return this.token;
     }
 
     // logFunctions.writeLine(`getWordFormatted: started: "${this.token}" | ${config.get("isFormatMetaCommandsMixedCaseEnabled")}`, this.outputChannel);
 
-    const lowerToken = this.token.toLowerCase();
-
-    if (
-      config.get("isFormatMetaCommandsMixedCaseEnabled") &&
-      (this.token.startsWith("$") ||
-        this.token.startsWith("'$") ||
-        lowerToken == "companyname" ||
-        lowerToken == "fileversion#" ||
-        lowerToken == "productversion" ||
-        lowerToken == "legalcopyright")
-    ) {
+    if (config.get("isFormatMetaCommandsMixedCaseEnabled") && isMetaToken) {
       return this.token
         .replace(/\$CHECKING/i, "$Checking")
         .replace(/CompanyName/i, "CompanyName")
