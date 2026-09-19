@@ -4,6 +4,31 @@ import { QB64DebugSession } from "./QB64DebugSession";
 import { WorkspaceSymbolIndex } from "./WorkspaceSymbolIndex";
 
 var ownTerminal: vscode.Terminal;
+
+/**
+ * Reveal the Run and Debug view and/or the Debug Console (each opt-in via
+ * qb64pe.debug.focus*OnStart), immediately and fire-and-forget. Called from
+ * resolveDebugConfiguration so the panes appear the moment F5 is pressed —
+ * before compilation — giving live feedback while the build runs. Reveal the
+ * view first and the console last so, when both are on, the console ends
+ * focused. Both `.focus` commands also un-hide a collapsed pane.
+ */
+export function revealDebugPanes(): void {
+	const cfg = vscode.workspace.getConfiguration("qb64pe");
+	const wantView = cfg.get<boolean>("debug.focusRunDebugViewOnStart", true);
+	const wantConsole = cfg.get<boolean>("debug.focusDebugConsoleOnStart", true);
+	const run = (command: string) =>
+		Promise.resolve(vscode.commands.executeCommand(command)).then(undefined, () => {
+			/* command unavailable in this VS Code build — ignore */
+		});
+	if (wantView) {
+		run("workbench.view.debug");
+	}
+	if (wantConsole) {
+		run("workbench.debug.action.focusRepl");
+		run("workbench.panel.repl.view.focus");
+	}
+}
 export class DebugAdapterDescriptorFactory implements vscode.DebugAdapterDescriptorFactory {
 	constructor(private readonly workspaceIndex?: WorkspaceSymbolIndex) {}
 
@@ -97,6 +122,17 @@ export class QB64PEDebugConfigurationProvider
 			config.type = "QB64PE";
 			config.request = "launch";
 			config.name = "QB64PE";
+		}
+
+		// Reveal the debug UI the instant F5 is pressed — this runs before the
+		// adapter is created and long before QB64DebugSession.launchRequest
+		// compiles, so the user sees the Debug Console (and its "Flattened…/
+		// Compiling…" output) immediately instead of waiting out a stalled
+		// compile. onDidStartDebugSession is too late: for QB64PE it fires only
+		// after the compile completes. Fire-and-forget so config resolution isn't
+		// blocked. Applies to both the debugger and terminal build & run paths.
+		if (config.type === "QB64PE") {
+			revealDebugPanes();
 		}
 
 		// "Run Without Debugging" (Ctrl+F5) and explicit `command` configs keep

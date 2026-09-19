@@ -2,6 +2,10 @@
 
 All notable changes to the "QB64 PE" extension will be documented in this file.
 
+## 0.20.9
+
+- Debugger: the debug UI now appears the **instant F5 is pressed**, before compilation — so you get immediate feedback (and see the "Flattened…/Compiling…" output live) instead of the panes only showing up after a stalled compile finishes. Previously the reveal was tied to the session-started event, which for QB64PE fires only after the compile completes. This applies to both `qb64pe.debug.focusRunDebugViewOnStart` and `qb64pe.debug.focusDebugConsoleOnStart`.
+
 ## 0.20.8
 
 - Formatter: keyword casing (`qb64pe.formatMode` with `isFormatEnabled` on) now actually rewrites keyword case. It previously decided whether a token was a keyword by looking for a help file for it, so casing did nothing unless `qb64pe.helpPath` pointed at the right files. Casing now consults the built-in 774-keyword list directly (independent of help files), so `Upper Case`/`Lower Case`/`Mixed Case` apply reliably. (Hover/F1 also fall back to the bundled `help/` when `helpPath` is unset.)

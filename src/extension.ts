@@ -265,41 +265,10 @@ export async function activate(context: vscode.ExtensionContext) {
     )
   );
 
-  // Reveal the debug UI when a QB64PE session starts (each pane independently
-  // opt-in). Revealing also un-hides a pane that is currently collapsed. We
-  // focus the Run and Debug view last so keyboard focus lands there.
-  context.subscriptions.push(
-    vscode.debug.onDidStartDebugSession(async (session) => {
-      if (session.type !== "QB64PE") {
-        return;
-      }
-      const cfg = vscode.workspace.getConfiguration("qb64pe");
-      const wantView = cfg.get<boolean>("debug.focusRunDebugViewOnStart", true);
-      const wantConsole = cfg.get<boolean>("debug.focusDebugConsoleOnStart", true);
-      if (!wantView && !wantConsole) {
-        return;
-      }
-      // Let VS Code finish its own session-start layout before we reveal panes.
-      await new Promise((resolve) => setTimeout(resolve, 250));
-      const reveal = async (command: string) => {
-        try {
-          await vscode.commands.executeCommand(command);
-        } catch {
-          /* command unavailable in this VS Code build — try the next */
-        }
-      };
-      // Reveal the Run and Debug view first, then the Debug Console last, so
-      // when both are on the console ends focused (where output/trace appear).
-      // Each `.focus` command also un-hides a collapsed pane.
-      if (wantView) {
-        await reveal("workbench.view.debug");
-      }
-      if (wantConsole) {
-        await reveal("workbench.debug.action.focusRepl");
-        await reveal("workbench.panel.repl.view.focus");
-      }
-    })
-  );
+  // The debug UI is revealed the moment F5 is pressed (before compilation) from
+  // QB64PEDebugConfigurationProvider.resolveDebugConfiguration — see
+  // revealDebugPanes(). onDidStartDebugSession fires too late for QB64PE (after
+  // the compile), so it is intentionally not used for this.
 
   decoratorFunctions.setupDecorate(workspaceIndex);
   vscodeFunctions.createFiles();
