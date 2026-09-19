@@ -2,7 +2,7 @@
   "name": "qb64pe",
   "displayName": "QB64PE",
   "description": "QB64PE (Phoenix Edition) language support for Visual Studio Code with intelligent code completion and 500+ keywords.",
-  "version": "0.20.20",
+  "version": "0.20.21",
   "engines": {
     "vscode": "^1.78.1"
   },
@@ -97,6 +97,41 @@
                 "type": "integer",
                 "description": "Debug: parallel C++ compiler processes (-f:MaxCompilerProcesses). 0 = auto-detect cores. Helps clean/first builds; a per-edit debug rebuild is one C++ translation unit and can't be parallelized. Defaults to qb64pe.debug.maxCompilerProcesses.",
                 "default": 0
+              },
+              "optimizeCppProgram": {
+                "type": "string",
+                "enum": [
+                  "default",
+                  "on",
+                  "off"
+                ],
+                "description": "Debug: -f:OptimizeCppProgram. 'default' inherits QB64PE's setting. Defaults to qb64pe.debug.optimizeCppProgram."
+              },
+              "stripDebugSymbols": {
+                "type": "string",
+                "enum": [
+                  "default",
+                  "on",
+                  "off"
+                ],
+                "description": "Debug: -f:StripDebugSymbols. 'default' inherits QB64PE's setting. Defaults to qb64pe.debug.stripDebugSymbols."
+              },
+              "absoluteDebugPaths": {
+                "type": "string",
+                "enum": [
+                  "default",
+                  "on",
+                  "off"
+                ],
+                "description": "Debug: -f:AbsoluteDebugPaths. 'default' inherits QB64PE's setting. Defaults to qb64pe.debug.absoluteDebugPaths."
+              },
+              "extraCppFlags": {
+                "type": "string",
+                "description": "Debug: -f:ExtraCppFlags (extra C++ compiler flags). Defaults to qb64pe.debug.extraCppFlags."
+              },
+              "extraLinkerFlags": {
+                "type": "string",
+                "description": "Debug: -f:ExtraLinkerFlags (extra linker flags). Defaults to qb64pe.debug.extraLinkerFlags."
               },
               "command": {
                 "type": "string",
@@ -289,6 +324,46 @@
           ],
           "default": "12-hour",
           "description": "Debug|Timestamp format: clock style for the Debug Console milestone timestamps — 12-hour (e.g. 3:41:12.880 PM) or 24-hour (15:41:12.880)."
+        },
+        "qb64pe.debug.optimizeCppProgram": {
+          "type": "string",
+          "enum": [
+            "default",
+            "on",
+            "off"
+          ],
+          "default": "default",
+          "description": "Debug|C++ optimization (-f:OptimizeCppProgram): compile the program with the C++ optimizer. 'default' leaves QB64PE's own setting alone. Usually leave off for debugging (faster compile; optimized code steps less predictably)."
+        },
+        "qb64pe.debug.stripDebugSymbols": {
+          "type": "string",
+          "enum": [
+            "default",
+            "on",
+            "off"
+          ],
+          "default": "default",
+          "description": "Debug|Strip C++ symbols (-f:StripDebugSymbols): strip C++ symbols from the executable. 'default' leaves QB64PE's own setting alone. QB64PE's own vwatch debugging doesn't need C++ symbols, so stripping is safe and yields a smaller exe."
+        },
+        "qb64pe.debug.absoluteDebugPaths": {
+          "type": "string",
+          "enum": [
+            "default",
+            "on",
+            "off"
+          ],
+          "default": "default",
+          "description": "Debug|Absolute source paths in C++ debug info (-f:AbsoluteDebugPaths). 'default' leaves QB64PE's own setting alone. Only relevant when C++ debug info is embedded."
+        },
+        "qb64pe.debug.extraCppFlags": {
+          "type": "string",
+          "default": "",
+          "description": "Debug|Extra C++ compiler flags (-f:ExtraCppFlags): passed to the C++ compiler for the debug build. Empty = none."
+        },
+        "qb64pe.debug.extraLinkerFlags": {
+          "type": "string",
+          "default": "",
+          "description": "Debug|Extra linker flags (-f:ExtraLinkerFlags): passed to the linker for the debug build. Empty = none."
         },
         "qb64pe.debug.arrayExpandLimit": {
           "type": "number",

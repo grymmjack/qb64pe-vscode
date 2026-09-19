@@ -2,6 +2,10 @@
 
 All notable changes to the "QB64 PE" extension will be documented in this file.
 
+## 0.20.21
+
+- Debugger: the F5 build now honors the QB64PE compiler settings from the IDE's **Compiler Settings** dialog, via new `qb64pe.debug.*` settings (and per-launch args): `optimizeCppProgram` (`-f:OptimizeCppProgram`), `stripDebugSymbols` (`-f:StripDebugSymbols`), `absoluteDebugPaths` (`-f:AbsoluteDebugPaths`), `extraCppFlags` (`-f:ExtraCppFlags`), and `extraLinkerFlags` (`-f:ExtraLinkerFlags`). The three toggles are tri-state — `default` leaves QB64PE's own setting alone; `on`/`off` emit an override. The extra-flags strings pass through when non-empty. All appear in the shown build command.
+
 ## 0.20.20
 
 - Debugger: the program "character sheet" is now a **pretty aligned table** — a two-column key/value grid (Files/SUBs, Directories/FUNCTIONs, Lines/TYPEs, Code/CONSTs, Libraries/Labels, Lib routines/Variables) and a right-justified **Variables by type** list, with coloured labels (cyan) and counts (green) under magenta section headers.
