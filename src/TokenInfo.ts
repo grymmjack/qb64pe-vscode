@@ -1,5 +1,6 @@
 "use strict";
 import * as fs from "fs";
+import * as path from "path";
 import * as vscode from "vscode";
 import * as logFunctions from "./logFunctions";
 import * as commonFunctions from "./commonFunctions";
@@ -53,6 +54,19 @@ export class TokenInfo {
       vscode.workspace.getConfiguration("qb64pe");
 
     let helpPath: string = config.get("helpPath");
+
+    // Keyword detection (and therefore keyword casing in the formatter) hinges
+    // on finding a help file for the token. When qb64pe.helpPath is unset or
+    // invalid, fall back to the extension's own bundled help/ directory — the
+    // same snapshot HelpService uses — so casing works out of the box instead
+    // of silently treating every token as a non-keyword. (__dirname is out/;
+    // the bundled help/ sits next to it at the extension root.)
+    if (!helpPath || !fs.existsSync(helpPath)) {
+      const bundled = path.join(__dirname, "..", "help");
+      if (fs.existsSync(bundled)) {
+        helpPath = bundled;
+      }
+    }
 
     // Use case-insensitive lookup
     const helpFile = TokenInfo.findHelpFile(helpPath, this.keyword);
