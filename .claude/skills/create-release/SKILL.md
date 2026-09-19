@@ -152,6 +152,37 @@ and confirm the `.vsix` shows under Assets.
 
 ---
 
+## Step 7 — Publish to Open VSX (optional, opt-in)
+
+The extension is published on **open-vsx.org** as `grymmjack/qb64pe` (the `publisher`
+field in `package.json` is the namespace). This step is **separate from the GitHub
+release** and the user often does it by hand — **ask first**, and only proceed if they say yes.
+
+Publishing needs an **open-vsx Personal Access Token**. Never hardcode or commit it; read it
+from the environment (`OVSX_PAT`) or have the user pass it. Check availability without printing
+the value:
+
+```bash
+if [ -n "$OVSX_PAT" ]; then echo "OVSX_PAT is set"; else echo "OVSX_PAT is NOT set"; fi
+```
+
+- **If `OVSX_PAT` is not set:** don't try to publish. Tell the user to create/copy a token at
+  https://open-vsx.org/user-settings/tokens and either `export OVSX_PAT=…` then re-run this
+  step, or run the publish command themselves (below) with `-p <token>`. Do **not** ask them to
+  paste the token into the chat.
+- **If `OVSX_PAT` is set**, confirm, then publish the same `.vsix` that's attached to the release:
+
+```bash
+npx ovsx publish "qb64pe-$V.vsix" -p "$OVSX_PAT"
+```
+
+- open-vsx rejects a version that's already published — if the user already pushed `V` manually,
+  it will fail with "already exists"; that's expected, just report it and move on.
+- Verify: `npx ovsx get grymmjack.qb64pe --metadata 2>/dev/null | grep -i version` or point the
+  user to https://open-vsx.org/extension/grymmjack/qb64pe.
+
+---
+
 ## Rules
 
 - **Confirm before Step 6.** Never publish a release without showing the notes + tag first.
@@ -161,5 +192,6 @@ and confirm the `.vsix` shows under Assets.
 - **`gh` must target `--repo grymmjack/qb64pe-vscode`** (fork). The github MCP server has failed
   auth this session — use the `gh` CLI.
 - Keep notes **user-facing**: the changelog is already curated; don't dump internal churn.
-- This skill does **not** publish to open-vsx — that's a separate, user-initiated step.
+- Open VSX publishing (Step 7) is **optional and opt-in** — always ask first, and only when
+  `OVSX_PAT` is set. Never hardcode, echo, or commit the token; read it from the environment.
 - Today's date in `YYYY-MM-DD` where a date is needed.
