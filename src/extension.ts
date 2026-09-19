@@ -142,6 +142,11 @@ export async function activate(context: vscode.ExtensionContext) {
       alignSource();
     })
   );
+  context.subscriptions.push(
+    vscode.commands.registerCommand("qb64pe.debugRebuild", () => {
+      debugRebuild();
+    })
+  );
 
   // Register Providers here
   // One workspace-wide symbol index shared by every language provider.
@@ -407,6 +412,29 @@ export function removeLineNumbers() {
   } catch (error) {
     vscode.window.showErrorMessage(error);
   }
+}
+
+/**
+ * Start a debug session that forces a fresh compile, ignoring the build cache
+ * (qb64pe.debug.cacheBuild). Useful when the source is unchanged but you still
+ * want a rebuild (e.g. after editing a resource the cache can't see). Passes
+ * cacheBuild:false on the launch config, which QB64DebugSession honors over the
+ * setting; the fresh build is then cached for subsequent normal F5 runs.
+ */
+export async function debugRebuild(): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor || editor.document.languageId !== "QB64PE") {
+    vscode.window.showWarningMessage("Open a QB64PE (.bas) file to rebuild and debug.");
+    return;
+  }
+  const folder = vscode.workspace.getWorkspaceFolder(editor.document.uri);
+  await vscode.debug.startDebugging(folder, {
+    type: "QB64PE",
+    request: "launch",
+    name: "QB64PE: Debug (Force Rebuild)",
+    program: editor.document.fileName,
+    cacheBuild: false,
+  });
 }
 
 /**

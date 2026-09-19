@@ -2,7 +2,7 @@
   "name": "qb64pe",
   "displayName": "QB64PE",
   "description": "QB64PE (Phoenix Edition) language support for Visual Studio Code with intelligent code completion and 500+ keywords.",
-  "version": "0.20.12",
+  "version": "0.20.13",
   "engines": {
     "vscode": "^1.78.1"
   },
@@ -32,7 +32,8 @@
       "editor.formatOnSave": true,
       "editor.wordWrap": "off",
       "editor.autoIndent": true,
-      "explorer.autoReveal": true
+      "explorer.autoReveal": true,
+      "editor.colorDecorators": true
     }
   },
   "contributes": {
@@ -480,6 +481,11 @@
       {
         "command": "qb64pe.alignSource",
         "title": "Align Source (=, AS, CASE, :, comments)",
+        "category": "QB64PE"
+      },
+      {
+        "command": "qb64pe.debugRebuild",
+        "title": "Debug (Force Rebuild, ignore cache)",
         "category": "QB64PE"
       },
       {

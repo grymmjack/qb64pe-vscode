@@ -2,6 +2,11 @@
 
 All notable changes to the "QB64 PE" extension will be documented in this file.
 
+## 0.20.13
+
+- Editor: colour swatches are enabled for QB64PE files by default (`[QB64PE]` sets `editor.colorDecorators: true`). If you still don't see them, make sure `editor.colorDecorators` isn't turned off globally. (The swatches themselves shipped in 0.20.11.)
+- Debugger: new command **QB64PE: Debug (Force Rebuild, ignore cache)** (`qb64pe.debugRebuild`) — starts a debug session that recompiles even when `qb64pe.debug.cacheBuild` is on. Bind it to a key of your choice (note: `Shift+F5` is VS Code's built-in Stop Debugging).
+
 ## 0.20.12
 
 - Debugger: **TYPE members now show their values** in the VARIABLES view, even for TYPEs that contain variable-length `AS STRING` members. Previously a single variable-length string (common as the first field) made every following member show `<?>`, because its size was unknown and broke the byte-offset chain. A variable-length string in a TYPE occupies a fixed 8-byte descriptor slot (verified against QB64PE), so offsets now stay correct and the numeric/fixed members read live. The string field itself shows `<string>` (its text lives outside the record and isn't readable by a raw byte read).
