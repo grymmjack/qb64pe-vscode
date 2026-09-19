@@ -274,12 +274,19 @@ export async function activate(context: vscode.ExtensionContext) {
         return;
       }
       const cfg = vscode.workspace.getConfiguration("qb64pe");
-      if (cfg.get<boolean>("debug.focusDebugConsoleOnStart", true)) {
-        vscode.commands.executeCommand("workbench.panel.repl.view.focus");
-      }
-      if (cfg.get<boolean>("debug.focusRunDebugViewOnStart", true)) {
-        vscode.commands.executeCommand("workbench.view.debug");
-      }
+      // Reveal the Run and Debug view first, then the Debug Console, so when
+      // both are enabled keyboard focus ends on the console (where program
+      // output and the trace appear). Each `.focus` command also un-hides a
+      // collapsed pane. A short delay lets VS Code finish its own start-up
+      // layout (it may reveal the debug view itself) before we take over.
+      setTimeout(() => {
+        if (cfg.get<boolean>("debug.focusRunDebugViewOnStart", true)) {
+          vscode.commands.executeCommand("workbench.view.debug");
+        }
+        if (cfg.get<boolean>("debug.focusDebugConsoleOnStart", true)) {
+          vscode.commands.executeCommand("workbench.panel.repl.view.focus");
+        }
+      }, 150);
     })
   );
 
