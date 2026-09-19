@@ -2,7 +2,7 @@
 
 All notable changes to the "QB64 PE" extension will be documented in this file.
 
-## 0.20.6
+## 0.20.7
 
 - Formatter: keyword casing (`qb64pe.formatMode` with `isFormatEnabled` on) now works even when `qb64pe.helpPath` is not set. Casing depended on finding a help file for each token to recognize it as a keyword, and `TokenInfo` only read the user's `helpPath` — so with it unset, nothing was ever treated as a keyword and casing silently did nothing. It now falls back to the extension's bundled `help/` directory (the same snapshot hover help uses).
 - Formatter: removed the "Do you want to start the long running process?" modal on files over 2000 lines. It popped on every format-on-save of a large file (even for the fast whitespace-only indent pass); responsiveness is handled by the editor's cancellation token instead. (Reminder: keyword casing/spacing is only applied when `qb64pe.isFormatEnabled` is on — it's off by default because it rewrites code, not just whitespace; `qb64pe.formatMode` picks the casing.)
