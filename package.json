@@ -2,7 +2,7 @@
   "name": "qb64pe",
   "displayName": "QB64PE",
   "description": "QB64PE (Phoenix Edition) language support for Visual Studio Code with intelligent code completion and 500+ keywords.",
-  "version": "0.20.4",
+  "version": "0.20.5",
   "engines": {
     "vscode": "^1.78.1"
   },
@@ -191,6 +191,50 @@
           "type": "boolean",
           "default": true,
           "description": "Format|Indent SUBs and FUNCTIONs: indent the bodies of SUBs and FUNCTIONs. Turn off to keep their bodies at the left margin. (QB64PE IDE: \"Indent SUBs and FUNCTIONs\".)"
+        },
+        "qb64pe.formatAlignAssignments": {
+          "type": "boolean",
+          "default": true,
+          "description": "Align: line up '=' within consecutive assignment blocks (pads the left-hand side). Used by the 'QB64PE: Align Source' command, not by Format Document."
+        },
+        "qb64pe.formatAlignDeclarations": {
+          "type": "boolean",
+          "default": true,
+          "description": "Align: line up 'AS' within TYPE/DIM declaration groups. Used by 'QB64PE: Align Source'."
+        },
+        "qb64pe.formatAlignCase": {
+          "type": "boolean",
+          "default": true,
+          "description": "Align: line up 'CASE \"KEY\": lhs = rhs' inline assignments (two columns: the ':' and the '='). Used by 'QB64PE: Align Source'."
+        },
+        "qb64pe.formatAlignColons": {
+          "type": "boolean",
+          "default": true,
+          "description": "Align: line up ':' statement separators within a group. Used by 'QB64PE: Align Source'."
+        },
+        "qb64pe.formatAlignComments": {
+          "type": "boolean",
+          "default": true,
+          "description": "Align: line up inline ' comments to a shared column. Used by 'QB64PE: Align Source'."
+        },
+        "qb64pe.formatAlignScope": {
+          "type": "string",
+          "enum": [
+            "block",
+            "section"
+          ],
+          "enumDescriptions": [
+            "Group by SUB/FUNCTION/TYPE block and indent level (whole-block alignment).",
+            "Group between blank / pure-comment delimiter lines (section alignment)."
+          ],
+          "default": "block",
+          "description": "Align: how AS / colon / comment alignment groups lines. Used by 'QB64PE: Align Source'."
+        },
+        "qb64pe.formatAlignGap": {
+          "type": "number",
+          "default": 1,
+          "minimum": 1,
+          "description": "Align: spaces to leave at each alignment column (before '=', 'AS', ':', or the comment). Used by 'QB64PE: Align Source'."
         },
         "qb64pe.debug.basePort": {
           "type": "number",
@@ -423,6 +467,11 @@
       {
         "command": "qb64pe.buildHelp",
         "title": "Build Help Pages (for offline hover/F1 links)",
+        "category": "QB64PE"
+      },
+      {
+        "command": "qb64pe.alignSource",
+        "title": "Align Source (=, AS, CASE, :, comments)",
         "category": "QB64PE"
       },
       {

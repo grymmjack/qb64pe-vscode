@@ -2,6 +2,11 @@
 
 All notable changes to the "QB64 PE" extension will be documented in this file.
 
+## 0.20.5
+
+- New command **QB64PE: Align Source** (`qb64pe.alignSource`): column-aligns the active file (or the selected lines) — lines up `=` in assignment blocks, `AS` in TYPE/DIM declarations, `CASE "KEY":` inline assignments (two columns), `:` statement separators, and inline `'` comments. Each pass has its own on/off setting (`qb64pe.formatAlign*`), plus `qb64pe.formatAlignScope` (block vs section grouping) and `qb64pe.formatAlignGap`. Alignment is a deliberate command, **not** part of Format Document / format-on-save. (Ports the behaviour of the `align-qb64pe.py` tool; verified byte-for-byte identical across a 514-file corpus.)
+- Fix: **Open compilelog.txt** now resolves the log under the QB64PE compiler/install path instead of a workspace-relative `./internal/temp/…` (which happened when `qb64pe.compilerPath` was empty), and it checks each `temp`/`temp1`…`temp9` folder actually contains the file before opening — so the fallback search works and you no longer get a phantom relative path.
+
 ## 0.20.4
 
 - Debugger: the flattened `.debug.*` file no longer contains any `$INCLUDE` or `$INCLUDEONCE` metacommands. Every include is inlined, so the directives are dropped (replaced by blank lines that keep the line map exact, so breakpoints and stepping still line up). This prevents the compiler from re-expanding an include inside the already-flattened source.
