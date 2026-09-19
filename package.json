@@ -419,7 +419,7 @@
       },
       {
         "command": "extension.openCompileLog",
-        "key": "ctrl+alt+shift+l",
+        "key": "shift+alt+l",
         "when": "editorLangId == 'QB64PE' && editorTextFocus"
       },
       {
@@ -454,7 +454,7 @@
       },
       {
         "command": "extension.runLint",
-        "key": "shift+alt+l",
+        "key": "ctrl+shift+l",
         "when": "editorLangId == 'QB64PE' && editorTextFocus"
       },
       {
@@ -465,11 +465,6 @@
       {
         "command": "editor.action.transformToUppercase",
         "key": "ctrl+shift+u",
-        "when": "editorLangId == 'QB64PE' && editorTextFocus"
-      },
-      {
-        "command": "editor.action.transformToLowercase",
-        "key": "ctrl+shift+l",
         "when": "editorLangId == 'QB64PE' && editorTextFocus"
       }
     ],
