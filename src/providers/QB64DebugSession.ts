@@ -162,6 +162,16 @@ interface QB64LaunchArguments
   cacheBuild?: boolean;
   /** Parallel C++ compiler processes (-f:MaxCompilerProcesses). 0 = auto. */
   maxCompilerProcesses?: number;
+  /** -f:OptimizeCppProgram — "default" | "on" | "off". */
+  optimizeCppProgram?: string;
+  /** -f:StripDebugSymbols — "default" | "on" | "off". */
+  stripDebugSymbols?: string;
+  /** -f:AbsoluteDebugPaths — "default" | "on" | "off". */
+  absoluteDebugPaths?: string;
+  /** -f:ExtraCppFlags — extra C++ compiler flags (empty = none). */
+  extraCppFlags?: string;
+  /** -f:ExtraLinkerFlags — extra linker flags (empty = none). */
+  extraLinkerFlags?: string;
 }
 
 /**
@@ -1763,6 +1773,23 @@ export class QB64DebugSession extends LoggingDebugSession {
       let procs = this.args?.maxCompilerProcesses ?? cfg.get<number>("debug.maxCompilerProcesses", 0);
       if (!procs || procs < 1) procs = os.cpus().length || 1;
       const args = ["-c", sourceFile, "-o", exePath, "-x", `-f:MaxCompilerProcesses=${procs}`];
+
+      // Extra QB64PE compiler settings (mirror the IDE's Compiler Settings). Each
+      // boolean is tri-state: "default" leaves QB64's own setting alone; only
+      // "on"/"off" emit a -f: override. Free-form flag strings pass through when
+      // non-empty. All are overridable per launch config.
+      const tri = (v: string | undefined, cfgKey: string, name: string) => {
+        const s = v ?? cfg.get<string>(cfgKey, "default");
+        if (s === "on") args.push(`-f:${name}=true`);
+        else if (s === "off") args.push(`-f:${name}=false`);
+      };
+      tri(this.args?.optimizeCppProgram, "debug.optimizeCppProgram", "OptimizeCppProgram");
+      tri(this.args?.stripDebugSymbols, "debug.stripDebugSymbols", "StripDebugSymbols");
+      tri(this.args?.absoluteDebugPaths, "debug.absoluteDebugPaths", "AbsoluteDebugPaths");
+      const cppFlags = (this.args?.extraCppFlags ?? cfg.get<string>("debug.extraCppFlags", "")).trim();
+      if (cppFlags) args.push(`-f:ExtraCppFlags=${cppFlags}`);
+      const linkFlags = (this.args?.extraLinkerFlags ?? cfg.get<string>("debug.extraLinkerFlags", "")).trim();
+      if (linkFlags) args.push(`-f:ExtraLinkerFlags=${linkFlags}`);
 
       // Show the exact build command (a divider separates it from the stats).
       const q = (a: string) => (/\s/.test(a) ? `"${a}"` : a);
