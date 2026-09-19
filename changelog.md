@@ -2,6 +2,11 @@
 
 All notable changes to the "QB64 PE" extension will be documented in this file.
 
+## 0.20.4
+
+- Debugger: the flattened `.debug.*` file no longer contains any `$INCLUDE` or `$INCLUDEONCE` metacommands. Every include is inlined, so the directives are dropped (replaced by blank lines that keep the line map exact, so breakpoints and stepping still line up). This prevents the compiler from re-expanding an include inside the already-flattened source.
+- Linting: `GOTO`/`GOSUB` to a label defined only in a *different* routine is now flagged as `undefined-label` ("not defined in this scope"). QB64 labels are scoped to their SUB/FUNCTION (or module level), so a jump can only reach a label in the same scope — a common copy-paste bug that previously slipped through.
+
 ## 0.20.3
 
 - Linting: the duplicate-definition check no longer flags a label name reused in a different scope. QB64 line labels are scoped to their SUB/FUNCTION (or module level), so the same label in two different routines is legal; only a repeat within the same scope is reported now.

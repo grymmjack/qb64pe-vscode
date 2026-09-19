@@ -132,6 +132,22 @@ function undefinedNames(
   out: Diagnostic[]
 ): void {
   const labels = new Set(symbols.filter((s) => s.type === "LABEL").map((s) => normalizeName(s.name)));
+  // Labels are routine-scoped: a GOTO/GOSUB only reaches a label in the same
+  // SUB/FUNCTION (or at module level). Partition labels by scope so a jump to a
+  // label that lives in a *different* routine is flagged. Same scope-id shape as
+  // the duplicate-label check, so the two rules agree on "same scope".
+  const scopeIdAt = (line: number) => {
+    const routine = enclosingRoutine(index, key, line);
+    return routine ? `${normalizeBase(routine.name)}@${routine.line}` : "module";
+  };
+  const labelsByScope = new Map<string, Set<string>>();
+  for (const s of symbols) {
+    if (s.type !== "LABEL") continue;
+    const sid = scopeIdAt(s.line);
+    let set = labelsByScope.get(sid);
+    if (!set) labelsByScope.set(sid, (set = new Set()));
+    set.add(normalizeName(s.name));
+  }
   const types = symbols.filter((s) => s.type === "TYPE");
   const routines = symbols.filter((s) => isRoutine(s) && !s.isExternal);
   const scopes = new Map<QB64Symbol | null, Map<string, QB64Symbol>>();
@@ -176,11 +192,18 @@ function undefinedNames(
 
       const jump = text.match(RE_JUMP);
       if (jump) {
-        if (!labels.has(normalizeName(jump[1]))) {
+        const target = normalizeName(jump[1]);
+        const reachable = labelsByScope.get(scopeIdAt(startLine));
+        if (!reachable || !reachable.has(target)) {
+          // Distinguish "no such label anywhere" from "exists, but in another
+          // routine" — the latter is the common copy-paste bug this rule adds.
+          const elsewhere = labels.has(target);
           out.push({
             file: key,
             range: rangeOfWord(lines[startLine], jump[1], startLine),
-            message: `Label '${jump[1]}' is not defined in this file.`,
+            message: elsewhere
+              ? `Label '${jump[1]}' is not defined in this scope.`
+              : `Label '${jump[1]}' is not defined in this file.`,
             severity: "error",
             code: "undefined-label",
           });
