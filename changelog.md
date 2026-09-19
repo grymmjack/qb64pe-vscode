@@ -2,6 +2,10 @@
 
 All notable changes to the "QB64 PE" extension will be documented in this file.
 
+## 0.20.11
+
+- Editor: **colour chips + picker for QB64 colour calls.** `_RGB32`/`_RGBA32`/`_RGB`/`_RGBA` and `_HSB`/`_HSB32`/`_HSBA`/`_HSBA32` calls with integer-literal arguments now show an inline colour swatch; click it for the native colour picker, and the call is rewritten in place (function name and argument count preserved; HSB stays HSB). Works anywhere the call appears — inside `COLOR`, `LINE`, `PAINT`, `_PRINTSTRING`, etc. Calls with variable/expression arguments are left alone, and HSB uses QB64's exact ranges (H 0–360, S/B 0–100, HSBA alpha 0–100). Bare palette-index colours (e.g. `COLOR 15, 4`) have no fixed RGB and are not chipped.
+
 ## 0.20.10
 
 - Debugger: **arrays now expand in the VARIABLES view.** A 1-D array whose bounds are literal in its `DIM`/`REDIM` (e.g. `DIM colW(10)`) is shown as an expandable node listing `colW(0)`, `colW(1)`, … `colW(10)` — no need to add a watch for each index. Elements are read live and shown in numeric order. Bounds are recovered from the source declaration (the runtime doesn't expose them) and `OPTION BASE` is honored, so out-of-bounds elements are never read. Dynamic (`REDIM a(n)`), multi-dimensional, and UDT arrays, or any array larger than `qb64pe.debug.arrayExpandLimit` (default 256), keep the previous "Watch name(index)" hint.
