@@ -279,7 +279,16 @@
         "qb64pe.debug.decorateConsole": {
           "type": "boolean",
           "default": true,
-          "description": "Debug|Console decorations: add a run divider, emoji, and colour to the debugger's milestone lines in the Debug Console (compile, connect, stop, …). Timestamps show either way. Turn off for plain text."
+          "description": "Debug|Console decorations: add a run divider, program stats, emoji, and colour to the debugger's milestone lines in the Debug Console (compile, connect, stop, …). Timestamps show either way. Turn off for plain text."
+        },
+        "qb64pe.debug.timeFormat": {
+          "type": "string",
+          "enum": [
+            "12-hour",
+            "24-hour"
+          ],
+          "default": "12-hour",
+          "description": "Debug|Timestamp format: clock style for the Debug Console milestone timestamps — 12-hour (e.g. 3:41:12.880 PM) or 24-hour (15:41:12.880)."
         },
         "qb64pe.debug.arrayExpandLimit": {
           "type": "number",

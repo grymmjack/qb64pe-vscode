@@ -295,6 +295,7 @@ export class QB64DebugSession extends LoggingDebugSession {
     }
 
     this.lineCount = this.origins.length + 2;
+    this.logProgramStats();
 
     // Host first, so the debuggee can connect the instant it starts.
     let port: number;
@@ -1861,12 +1862,16 @@ export class QB64DebugSession extends LoggingDebugSession {
     text: string,
     opts: { icon?: string; color?: keyof typeof ANSI; category?: "stdout" | "stderr" } = {}
   ): void {
-    const decorate = (this.decorateConsole ??= vscode.workspace
-      .getConfiguration("qb64pe")
-      .get<boolean>("debug.decorateConsole", true));
+    const cfg = vscode.workspace.getConfiguration("qb64pe");
+    const decorate = (this.decorateConsole ??= cfg.get<boolean>("debug.decorateConsole", true));
+    const use12 = (this.time12h ??= cfg.get<string>("debug.timeFormat", "12-hour") !== "24-hour");
     const d = new Date();
     const p = (n: number, w = 2) => String(n).padStart(w, "0");
-    const ts = `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`;
+    const h = d.getHours();
+    const hms = `${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`;
+    const ts = use12
+      ? `${(h % 12) || 12}:${hms} ${h < 12 ? "AM" : "PM"}`
+      : `${p(h)}:${hms}`;
     const nl = text.endsWith("\n");
     const body = nl ? text.slice(0, -1) : text;
     let line: string;
@@ -1880,6 +1885,7 @@ export class QB64DebugSession extends LoggingDebugSession {
     this.output(line + (nl ? "\n" : ""), opts.category ?? "stdout");
   }
   private decorateConsole?: boolean;
+  private time12h?: boolean;
 
   /** A full-width rule with a centered-ish title, to separate F5 runs. */
   private divider(title: string): void {
@@ -1893,6 +1899,65 @@ export class QB64DebugSession extends LoggingDebugSession {
       );
     } else {
       this.output(`${rule}\n  ${title}\n${rule}\n`);
+    }
+  }
+
+  /**
+   * A one-time "character sheet" for the program: how many files/directories
+   * were flattened into one, line counts, and symbol tallies (SUBs, FUNCTIONs,
+   * TYPEs, CONSTs, variables by type, DECLARE LIBRARY). Printed under the run
+   * divider. Best-effort — wrapped so a stats hiccup never blocks a debug run.
+   */
+  private logProgramStats(): void {
+    try {
+      const decorate = (this.decorateConsole ??= vscode.workspace
+        .getConfiguration("qb64pe")
+        .get<boolean>("debug.decorateConsole", true));
+      const n = (x: number) => x.toLocaleString("en-US");
+      const dim = (t: string) => (decorate ? `${ANSI.dim}${t}${ANSI.reset}` : t);
+      const emit = (t: string) => this.output(`${dim("  " + t)}\n`);
+
+      // Files / directories / lines from the flatten origins + text.
+      const files = new Set<string>();
+      const dirs = new Set<string>();
+      for (const o of this.origins) {
+        files.add(o.file);
+        dirs.add(path.dirname(o.file));
+      }
+      const lines = this.flatText.split(/\r?\n/);
+      let code = 0;
+      for (const raw of lines) {
+        const t = raw.trim();
+        if (t && !t.startsWith("'") && !/^REM(\s|$)/i.test(t)) code++;
+      }
+
+      // Symbol tallies from the parsed flattened program.
+      const syms = this.programSyms();
+      const isRoutine = (s: QB64Symbol, t: "SUB" | "FUNCTION") => s.type === t;
+      const subs = syms.filter((s) => isRoutine(s, "SUB") && !s.isExternal).length;
+      const funcs = syms.filter((s) => isRoutine(s, "FUNCTION") && !s.isExternal).length;
+      const ext = syms.filter((s) => (s.type === "SUB" || s.type === "FUNCTION") && s.isExternal);
+      const libs = new Set(ext.map((s) => s.library).filter((x): x is string => !!x));
+      const types = syms.filter((s) => s.type === "TYPE").length;
+      const consts = syms.filter((s) => s.type === "CONST").length;
+      const labels = syms.filter((s) => s.type === "LABEL").length;
+      const vars = syms.filter((s) => s.type === "VARIABLE");
+      const byType = new Map<string, number>();
+      for (const v of vars) {
+        const key = (v.dataType || "untyped").toUpperCase();
+        byType.set(key, (byType.get(key) ?? 0) + 1);
+      }
+      const top = [...byType.entries()].sort((a, b) => b[1] - a[1]);
+      const shown = top.slice(0, 8).map(([t, c]) => `${t} ${n(c)}`).join(", ");
+      const more = top.length > 8 ? `, +${top.length - 8} more` : "";
+
+      const head = `📊 Program: ${n(files.size)} file${files.size === 1 ? "" : "s"} · ${n(dirs.size)} ${dirs.size === 1 ? "dir" : "dirs"} · ${n(lines.length)} lines (${n(code)} code)`;
+      this.output((decorate ? `${ANSI.magenta}${ANSI.bold}  ${head}${ANSI.reset}` : `  ${head}`) + "\n");
+      emit(`SUBs ${n(subs)} · FUNCTIONs ${n(funcs)} · TYPEs ${n(types)} · CONSTs ${n(consts)} · Labels ${n(labels)}`);
+      if (vars.length) emit(`Variables ${n(vars.length)} — ${shown}${more}`);
+      if (ext.length) emit(`DECLARE LIBRARY: ${n(ext.length)} routine${ext.length === 1 ? "" : "s"} · ${n(libs.size)} librar${libs.size === 1 ? "y" : "ies"}`);
+    } catch {
+      /* stats are cosmetic — never block a debug run */
     }
   }
 
