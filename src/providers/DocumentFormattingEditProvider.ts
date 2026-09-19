@@ -160,11 +160,10 @@ export class DocumentFormattingEditProvider implements vscode.DocumentFormatting
 	async provideDocumentFormattingEdits(document: vscode.TextDocument, options: vscode.FormattingOptions, token: vscode.CancellationToken): Promise<vscode.TextEdit[]> {
 		let retvalue: vscode.TextEdit[] = [];
 
-		if (document.lineCount > 2000) {
-			if (await vscode.window.showInformationMessage('Do you want to start the long running process?', 'Yes', 'No') !== 'Yes') {
-				return null;
-			}
-		}
+		// No modal prompt for large files: it popped on every format-on-save of a
+		// big file, even for the fast whitespace-only indent pass. Responsiveness
+		// is handled by the CancellationToken checked in the content loop below —
+		// VS Code cancels/times out a slow format on its own.
 
 		// const operators = ",(+-=<>[{}]`);:.";
 		const qb64Config: vscode.WorkspaceConfiguration = vscode.workspace.getConfiguration("qb64pe");
