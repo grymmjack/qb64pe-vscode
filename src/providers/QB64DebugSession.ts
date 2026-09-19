@@ -54,6 +54,18 @@ import {
 const THREAD_ID = 1;
 const THREAD_NAME = "QB64PE program";
 
+/** ANSI SGR codes for the Debug Console (it renders these). */
+const ANSI = {
+  reset: "\x1b[0m",
+  bold: "\x1b[1m",
+  dim: "\x1b[90m",
+  red: "\x1b[31m",
+  green: "\x1b[32m",
+  yellow: "\x1b[33m",
+  cyan: "\x1b[36m",
+  magenta: "\x1b[35m",
+} as const;
+
 /** A held variablesResponse collecting async get-var replies. */
 interface VarBatch {
   response: DebugProtocol.VariablesResponse;
@@ -254,6 +266,8 @@ export class QB64DebugSession extends LoggingDebugSession {
     this.stopOnEntry = !!args.stopOnEntry;
     this.program = args.program;
 
+    this.divider(`🐛 QB64PE Debug · ${path.basename(this.program || "program")}`);
+
     if (!this.program || !fs.existsSync(this.program)) {
       this.fail(response, `Program not found: ${this.program}`);
       return;
@@ -298,7 +312,7 @@ export class QB64DebugSession extends LoggingDebugSession {
     // repeat debug session of a large project from minutes into instant.
     let producedExe = this.tryUseCachedBuild(args, exePath);
     if (producedExe) {
-      this.status("Reusing cached build (no source changes).\n");
+      this.status("Reusing cached build (no source changes).\n", { icon: "♻️", color: "green" });
     } else {
       fs.writeFileSync(this.compiledProgram, this.flatText, "latin1");
       const compileStart = Date.now();
@@ -1333,7 +1347,7 @@ export class QB64DebugSession extends LoggingDebugSession {
       return;
     }
     this.socket = socket;
-    this.status("Debuggee connected.\n");
+    this.status("Debuggee connected.\n", { icon: "🔌", color: "green" });
     socket.on("data", (chunk) => this.onData(chunk));
     socket.on("error", () => {
       /* handled by close */
@@ -1441,7 +1455,8 @@ export class QB64DebugSession extends LoggingDebugSession {
     // breakpoint on the entry line).
     this.status(
       `Handshake complete; breakpoints at [${lines.join(", ") || "none"}]; ` +
-        `${this.stopOnEntry ? "stopping at entry" : "running"}.\n`
+        `${this.stopOnEntry ? "stopping at entry" : "running"}.\n`,
+      { icon: "🤝", color: "cyan" }
     );
     this.send(this.stopOnEntry ? VWatchOut.Break : VWatchOut.Run);
   }
@@ -1478,7 +1493,8 @@ export class QB64DebugSession extends LoggingDebugSession {
     this.currentFile = origin?.file ?? this.program;
     this.currentLine = origin?.line ?? flatLine;
     this.status(
-      `Stopped at ${path.basename(this.currentFile)}:${this.currentLine} (${reason}).\n`
+      `Stopped at ${path.basename(this.currentFile)}:${this.currentLine} (${reason}).\n`,
+      { icon: "⏸️", color: "yellow" }
     );
     this.callStackReady = false;
     this.callStack = [];
@@ -1747,7 +1763,8 @@ export class QB64DebugSession extends LoggingDebugSession {
       if (!procs || procs < 1) procs = os.cpus().length || 1;
       const t0 = Date.now();
       this.status(
-        `Compiling ${path.basename(sourceFile)} with $DEBUG (${procs} compiler process${procs === 1 ? "" : "es"})...\n`
+        `Compiling ${path.basename(sourceFile)} with $DEBUG (${procs} compiler process${procs === 1 ? "" : "es"})...\n`,
+        { icon: "🔨", color: "cyan" }
       );
       const proc = cp.spawn(
         compilerPath,
@@ -1757,14 +1774,16 @@ export class QB64DebugSession extends LoggingDebugSession {
       proc.stdout?.on("data", (d) => this.output(d.toString()));
       proc.stderr?.on("data", (d) => this.output(d.toString(), "stderr"));
       proc.on("error", (err) => {
-        this.status(`Failed to run compiler: ${err.message}\n`, "stderr");
+        this.status(`Failed to run compiler: ${err.message}\n`, { icon: "❌", color: "red", category: "stderr" });
         resolve(false);
       });
       proc.on("close", (code) => {
         const secs = ((Date.now() - t0) / 1000).toFixed(1);
         this.status(
           `Compile ${code === 0 ? "succeeded" : "FAILED (exit " + code + ")"} in ${secs}s\n`,
-          code === 0 ? "stdout" : "stderr"
+          code === 0
+            ? { icon: "✅", color: "green" }
+            : { icon: "❌", color: "red", category: "stderr" }
         );
         resolve(code === 0);
       });
@@ -1772,7 +1791,7 @@ export class QB64DebugSession extends LoggingDebugSession {
   }
 
   private spawnDebuggee(exePath: string, port: number): void {
-    this.status(`Launching (QB64DEBUGPORT=${port})...\n`);
+    this.status(`Launching (QB64DEBUGPORT=${port})...\n`, { icon: "🚀", color: "cyan" });
     const child = cp.spawn(exePath, [], {
       cwd: path.dirname(exePath),
       env: { ...process.env, QB64DEBUGPORT: String(port) },
@@ -1800,7 +1819,7 @@ export class QB64DebugSession extends LoggingDebugSession {
 
   private terminated = false;
   private terminate(reason = "unknown"): void {
-    if (!this.terminated) this.status(`Session ending (${reason}).\n`);
+    if (!this.terminated) this.status(`Session ending (${reason}).\n`, { icon: "⏹️", color: "dim" });
     if (this.terminated) return;
     this.terminated = true;
     if (this.timeoutTimer) clearTimeout(this.timeoutTimer);
@@ -1832,15 +1851,49 @@ export class QB64DebugSession extends LoggingDebugSession {
   }
 
   /**
-   * Emit a timestamped launcher milestone (compile start/end, connect, stop, …).
-   * Raw compiler/program output and trace lines stay on plain output() so the
-   * progress bar and program text aren't prefixed.
+   * Emit a timestamped launcher milestone (compile start/end, connect, stop, …)
+   * with an optional emoji + ANSI colour (the Debug Console renders SGR codes).
+   * Decorations are toggled by qb64pe.debug.decorateConsole; the timestamp is
+   * always shown. Raw compiler/program output and trace lines stay on plain
+   * output() so the progress bar and program text aren't prefixed.
    */
-  private status(text: string, category: "stdout" | "stderr" = "stdout"): void {
+  private status(
+    text: string,
+    opts: { icon?: string; color?: keyof typeof ANSI; category?: "stdout" | "stderr" } = {}
+  ): void {
+    const decorate = (this.decorateConsole ??= vscode.workspace
+      .getConfiguration("qb64pe")
+      .get<boolean>("debug.decorateConsole", true));
     const d = new Date();
     const p = (n: number, w = 2) => String(n).padStart(w, "0");
     const ts = `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`;
-    this.output(`[${ts}] ${text}`, category);
+    const nl = text.endsWith("\n");
+    const body = nl ? text.slice(0, -1) : text;
+    let line: string;
+    if (decorate) {
+      const icon = opts.icon ? `${opts.icon} ` : "";
+      const col = opts.color ? ANSI[opts.color] : "";
+      line = `${ANSI.dim}[${ts}]${ANSI.reset} ${icon}${col}${body}${col ? ANSI.reset : ""}`;
+    } else {
+      line = `[${ts}] ${body}`;
+    }
+    this.output(line + (nl ? "\n" : ""), opts.category ?? "stdout");
+  }
+  private decorateConsole?: boolean;
+
+  /** A full-width rule with a centered-ish title, to separate F5 runs. */
+  private divider(title: string): void {
+    const decorate = (this.decorateConsole ??= vscode.workspace
+      .getConfiguration("qb64pe")
+      .get<boolean>("debug.decorateConsole", true));
+    const rule = "─".repeat(64);
+    if (decorate) {
+      this.output(
+        `${ANSI.cyan}${rule}${ANSI.reset}\n${ANSI.bold}${ANSI.cyan}  ${title}${ANSI.reset}\n${ANSI.cyan}${rule}${ANSI.reset}\n`
+      );
+    } else {
+      this.output(`${rule}\n  ${title}\n${rule}\n`);
+    }
   }
 
   private fail(response: DebugProtocol.Response, message: string): void {

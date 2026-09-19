@@ -276,6 +276,11 @@
           "minimum": 0,
           "description": "Debug|Compiler processes: parallel C++ compiler processes for F5 builds (passed as -f:MaxCompilerProcesses). 0 = auto-detect CPU cores. 1 = single-threaded. Higher = faster on large projects."
         },
+        "qb64pe.debug.decorateConsole": {
+          "type": "boolean",
+          "default": true,
+          "description": "Debug|Console decorations: add a run divider, emoji, and colour to the debugger's milestone lines in the Debug Console (compile, connect, stop, …). Timestamps show either way. Turn off for plain text."
+        },
         "qb64pe.debug.arrayExpandLimit": {
           "type": "number",
           "default": 256,
