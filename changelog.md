@@ -2,6 +2,10 @@
 
 All notable changes to the "QB64 PE" extension will be documented in this file.
 
+## 0.20.41
+
+- Syntax highlighting: fixed the **`SUB`/`FUNCTION` grammar rule swallowing the whole line** (reported by a740g). The rule matched `(SUB|FUNCTION)+(.*)$`, so everything after the keyword — the routine name, `ALIAS`, the alias string, and the entire parameter list — collapsed into one flat "function name" color. Most visible inside a `DECLARE LIBRARY` block, where every line is a `SUB`/`FUNCTION` with an alias and long param list. The rule now captures only the keyword + routine name (sigil included); `ALIAS`, strings, `AS`/`BYVAL`/type keywords, and parameters tokenize normally again.
+
 ## 0.20.40
 
 - Formatter: fixed indentation of **colon-joined block openers** (reported by a740g). A line like `DIM i AS LONG: FOR i = 5 TO 0 STEP -1` now correctly nests the loop body, because the formatter classifies every `:`-separated statement (net block depth) instead of only the first token. Inline `FOR … : … : NEXT` still nets to zero.

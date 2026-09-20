@@ -88,7 +88,7 @@
 			]
 		},
 		{
-			"match": "(?i:(SUB|FUNCTION)+(.*))$",
+			"match": "(?i)\\b(SUB|FUNCTION)\\b\\s+([A-Za-z_][A-Za-z0-9_]*[~!#$%&`]*)",
 			"captures": {
 				"1": {
 					"name": "keyword.all.QB64PE"
@@ -96,8 +96,7 @@
 				"2": {
 					"name": "support.function.QB64PE"
 				}
-			},
-			"name": "support.function.QB64PE"
+			}
 		},
 		{
 			"match": "(\\$)[a-zA-Z_x7f-xff][a-zA-Z0-9_x7f-xff]*?\\b\\s*",
