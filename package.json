@@ -2,7 +2,7 @@
   "name": "qb64pe",
   "displayName": "QB64PE",
   "description": "QB64PE (Phoenix Edition) language support for Visual Studio Code with intelligent code completion and 500+ keywords.",
-  "version": "0.20.21",
+  "version": "0.20.40",
   "engines": {
     "vscode": "^1.78.1"
   },
@@ -23,6 +23,9 @@
     "url": "https://github.com/grymmjack/qb64pe-vscode"
   },
   "icon": "images/qb64.ico",
+  "extensionPack": [
+    "grymmjack.qb64pe-theme"
+  ],
   "main": "./out/main.js",
   "activationEvents": [],
   "configurationDefaults": {
@@ -37,7 +40,23 @@
     }
   },
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "qb64pe",
+          "title": "QB64PE",
+          "icon": "images/qb64-light.svg"
+        }
+      ]
+    },
     "views": {
+      "qb64pe": [
+        {
+          "id": "qb64pe.main",
+          "name": "QB64PE",
+          "type": "webview"
+        }
+      ],
       "explorer": [
         {
           "id": "todo",
@@ -440,6 +459,36 @@
           "default": true,
           "description": "Lint|Enable: Show the lint channel when running lint."
         },
+        "qb64pe.isLintSyntaxCheckOnly": {
+          "type": "boolean",
+          "default": false,
+          "description": "Lint|Compiler: Syntax-check only (-z). Runs QB64PE's translate-and-check pass and emits C to internal/temp WITHOUT compiling/linking the executable, so lint is much faster. Off = full compile (-c/-x) to a throwaway binary, which also surfaces C++/linker-stage errors."
+        },
+        "qb64pe.isLintShowCompilerWarnings": {
+          "type": "boolean",
+          "default": true,
+          "description": "Lint|Compiler: Show compiler warnings (-w). When on, the linter passes -w so QB64PE reports warnings (e.g. unused variables) alongside errors."
+        },
+        "qb64pe.links.openInSimpleBrowser": {
+          "type": "boolean",
+          "default": false,
+          "description": "Links|Open in Simple Browser: open Links & Community / Articles & Tutorials entries inside VS Code's built-in Simple Browser instead of your external browser. Note: some sites (Discord, YouTube, GitHub sign-in) refuse to embed and work better externally."
+        },
+        "qb64pe.run.windowsExecutableExtension": {
+          "type": "string",
+          "default": ".exe",
+          "description": "Run|Executable (Windows): output extension for the compiled program on Windows, used by the editor Run button / Run Without Debugging and the F5 debug build. A leading dot is optional; empty = no extension."
+        },
+        "qb64pe.run.macExecutableExtension": {
+          "type": "string",
+          "default": ".run",
+          "description": "Run|Executable (macOS): output extension for the compiled program on macOS. Defaults to .run (so you can .gitignore *.run). A leading dot is optional; empty = no extension."
+        },
+        "qb64pe.run.linuxExecutableExtension": {
+          "type": "string",
+          "default": ".run",
+          "description": "Run|Executable (Linux): output extension for the compiled program on Linux. Defaults to .run (so you can .gitignore *.run). A leading dot is optional; empty = no extension."
+        },
         "qb64pe.isShowLScriptChannelEnabled": {
           "type": "boolean",
           "default": true,
@@ -501,8 +550,8 @@
           ".inc"
         ],
         "icon": {
-          "light": "./images/QB64PE-light.svg",
-          "dark": "./images/QB64PE-dark.svg"
+          "light": "./images/qb64-light.svg",
+          "dark": "./images/qb64-dark.svg"
         },
         "configuration": "./language-configuration.json"
       }
@@ -586,7 +635,8 @@
       {
         "command": "qb64pe.alignSource",
         "title": "Align Source (=, AS, CASE, :, comments)",
-        "category": "QB64PE"
+        "category": "QB64PE",
+        "icon": "$(list-flat)"
       },
       {
         "command": "qb64pe.debugRebuild",
@@ -621,7 +671,8 @@
       {
         "command": "extension.showHelp",
         "title": "Help",
-        "category": "QB64PE"
+        "category": "QB64PE",
+        "icon": "$(book)"
       },
       {
         "command": "extension.showHelpIndexAlphabetical",
@@ -636,15 +687,107 @@
       {
         "command": "extension.runLint",
         "title": "Lint",
-        "category": "QB64PE"
+        "category": "QB64PE",
+        "icon": "$(check)"
       },
       {
         "command": "extension.openCurrentFileInQB64PE",
         "title": "Open Current File in QB64PE",
-        "category": "QB64PE"
+        "category": "QB64PE",
+        "icon": "$(link-external)"
+      },
+      {
+        "command": "qb64pe.runWithoutDebugging",
+        "title": "Run Without Debugging",
+        "category": "QB64PE",
+        "icon": "$(play)"
+      },
+      {
+        "command": "qb64pe.startDebugging",
+        "title": "Start Debugging",
+        "category": "QB64PE",
+        "icon": "$(debug-alt)"
+      },
+      {
+        "command": "qb64pe.openWiki",
+        "title": "Open QB64PE Wiki",
+        "category": "QB64PE",
+        "icon": "$(globe)"
+      },
+      {
+        "command": "qb64pe.openSettings",
+        "title": "Open Settings",
+        "category": "QB64PE",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "qb64pe.focusView",
+        "title": "Show QB64PE Panel",
+        "category": "QB64PE",
+        "icon": "images/qb64-light.svg"
       }
     ],
     "menus": {
+      "commandPalette": [
+        {
+          "command": "qb64pe.openLink",
+          "when": "false"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "qb64pe.focusView",
+          "when": "resourceLangId == QB64PE",
+          "group": "navigation@0"
+        },
+        {
+          "command": "qb64pe.runWithoutDebugging",
+          "when": "resourceLangId == QB64PE",
+          "group": "navigation@1"
+        },
+        {
+          "command": "qb64pe.startDebugging",
+          "when": "resourceLangId == QB64PE",
+          "group": "navigation@2"
+        },
+        {
+          "command": "extension.runLint",
+          "when": "resourceLangId == QB64PE",
+          "group": "navigation@3"
+        },
+        {
+          "command": "extension.openCurrentFileInQB64PE",
+          "when": "resourceLangId == QB64PE",
+          "group": "navigation@4"
+        },
+        {
+          "command": "extension.showHelp",
+          "when": "resourceLangId == QB64PE",
+          "group": "navigation@5"
+        },
+        {
+          "command": "qb64pe.alignSource",
+          "when": "resourceLangId == QB64PE",
+          "group": "navigation@6"
+        },
+        {
+          "command": "qb64pe.openWiki",
+          "when": "resourceLangId == QB64PE",
+          "group": "navigation@7"
+        },
+        {
+          "command": "qb64pe.openSettings",
+          "when": "resourceLangId == QB64PE",
+          "group": "navigation@8"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "qb64pe.openSettings",
+          "when": "view == qb64pe.main",
+          "group": "navigation@1"
+        }
+      ],
       "editor/context": [
         {
           "command": "extension.runLint",
@@ -690,6 +833,7 @@
     "@vscode/test-electron": "^2.1.5",
     "@vscode/vsce": "^2.29.0",
     "esbuild": "^0.15.7",
+    "font-awesome": "^4.7.0",
     "mocha": "^11.8.0",
     "typescript": "^4.7.4",
     "webpack": "^5.74.0",

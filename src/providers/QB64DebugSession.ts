@@ -50,6 +50,7 @@ import {
   hitConditionMet,
   parseCondition,
 } from "../core/vwatchConditions";
+import { compilerSettingArgs, executableExtension } from "./compilerArgs";
 
 const THREAD_ID = 1;
 const THREAD_NAME = "QB64PE program";
@@ -1720,9 +1721,10 @@ export class QB64DebugSession extends LoggingDebugSession {
   private exePathFor(sourceFile: string): string {
     const dir = path.dirname(sourceFile);
     const base = path.basename(this.program, path.extname(this.program));
-    // Convention: .exe on Windows, .run on Linux/macOS.
-    const ext = process.platform === "win32" ? ".exe" : ".run";
-    return path.join(dir, base + ext);
+    // Configurable per-OS (qb64pe.run.*ExecutableExtension); defaults .exe on
+    // Windows, .run on Linux/macOS. findProducedExe() still probes in case the
+    // compiler names it differently.
+    return path.join(dir, base + executableExtension());
   }
 
   /**
@@ -1770,26 +1772,11 @@ export class QB64DebugSession extends LoggingDebugSession {
       // Parallelize the C++/g++ phase — the big win on large projects. 0/unset
       // = auto-detect cores; 1 = single-threaded escape hatch.
       const cfg = vscode.workspace.getConfiguration("qb64pe");
-      let procs = this.args?.maxCompilerProcesses ?? cfg.get<number>("debug.maxCompilerProcesses", 0);
-      if (!procs || procs < 1) procs = os.cpus().length || 1;
-      const args = ["-c", sourceFile, "-o", exePath, "-x", `-f:MaxCompilerProcesses=${procs}`];
-
-      // Extra QB64PE compiler settings (mirror the IDE's Compiler Settings). Each
-      // boolean is tri-state: "default" leaves QB64's own setting alone; only
-      // "on"/"off" emit a -f: override. Free-form flag strings pass through when
-      // non-empty. All are overridable per launch config.
-      const tri = (v: string | undefined, cfgKey: string, name: string) => {
-        const s = v ?? cfg.get<string>(cfgKey, "default");
-        if (s === "on") args.push(`-f:${name}=true`);
-        else if (s === "off") args.push(`-f:${name}=false`);
-      };
-      tri(this.args?.optimizeCppProgram, "debug.optimizeCppProgram", "OptimizeCppProgram");
-      tri(this.args?.stripDebugSymbols, "debug.stripDebugSymbols", "StripDebugSymbols");
-      tri(this.args?.absoluteDebugPaths, "debug.absoluteDebugPaths", "AbsoluteDebugPaths");
-      const cppFlags = (this.args?.extraCppFlags ?? cfg.get<string>("debug.extraCppFlags", "")).trim();
-      if (cppFlags) args.push(`-f:ExtraCppFlags=${cppFlags}`);
-      const linkFlags = (this.args?.extraLinkerFlags ?? cfg.get<string>("debug.extraLinkerFlags", "")).trim();
-      if (linkFlags) args.push(`-f:ExtraLinkerFlags=${linkFlags}`);
+      // Shared with the Ctrl+F5 build & run (DebugAdapterDescriptorFactory), so
+      // both honor the same qb64pe.debug.* compiler settings — the debug build
+      // just adds $DEBUG (via the flattened source) on top.
+      const { procs, args: settingArgs } = compilerSettingArgs(this.args);
+      const args = ["-c", sourceFile, "-o", exePath, "-x", ...settingArgs];
 
       // Show the exact build command (a divider separates it from the stats).
       const q = (a: string) => (/\s/.test(a) ? `"${a}"` : a);

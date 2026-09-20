@@ -361,3 +361,6 @@ out/extension.js.map
 
 # generated standalone CLI bundle
 bin/
+
+# Packaged extension artifacts
+*.vsix

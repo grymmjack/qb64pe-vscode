@@ -127,4 +127,26 @@ describe("core/indent", () => {
       ["SUB S", "", "  FOR i = 1 TO 3: PRINT i: NEXT i", "END SUB"]
     );
   });
+
+  it("opens a block from a colon-joined statement (DIM i: FOR ...)", () => {
+    // a740g's report: the FOR after the colon must still nest the body.
+    assert.deepStrictEqual(
+      fmt([
+        "SUB S",
+        "DIM i AS LONG: FOR i = 5 TO 0 STEP -1",
+        "PRINT i",
+        "j = j + w",
+        "NEXT i",
+        "END SUB",
+      ]),
+      [
+        "SUB S",
+        "  DIM i AS LONG: FOR i = 5 TO 0 STEP -1",
+        "    PRINT i",
+        "    j = j + w",
+        "  NEXT i",
+        "END SUB",
+      ]
+    );
+  });
 });

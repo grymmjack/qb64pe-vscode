@@ -38,6 +38,7 @@ import {
 } from "./providers/SemanticTokensProvider";
 import { WorkspaceSymbolIndex } from "./providers/WorkspaceSymbolIndex";
 import { TodoTreeProvider } from "./TodoTreeProvider";
+import { registerLinksView } from "./linksView";
 import { align, AlignOptions } from "./core/align";
 
 // To switch to debug mode the scripts in the package.json need to be changed.
@@ -63,14 +64,17 @@ export async function activate(context: vscode.ExtensionContext) {
   const documentSelector: vscode.DocumentSelector =
     commonFunctions.getDocumentSelector();
 
+  // Read settings fresh on each save: the `config` above is a snapshot taken at
+  // activation, so using it here ignored later changes (e.g. the .bak toggle
+  // kept creating backups until a reload — reported by a740g).
   vscode.workspace.onWillSaveTextDocument(() => {
-    if (config.get("isCreateBakFileEnabled")) {
+    if (vscode.workspace.getConfiguration("qb64pe").get("isCreateBakFileEnabled")) {
       createBackup();
     }
   });
 
   vscode.workspace.onDidSaveTextDocument(() => {
-    if (config.get("isLintOnSaveEnabled")) {
+    if (vscode.workspace.getConfiguration("qb64pe").get("isLintOnSaveEnabled")) {
       runLint();
     }
   });
@@ -146,6 +150,42 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("qb64pe.debugRebuild", () => {
       debugRebuild();
     })
+  );
+  // Editor-title Run buttons (the ▶ that other languages show). These just defer
+  // to VS Code's built-in start commands; the QB64PE debug type handles the rest
+  // (noDebug -> terminal build & run; debug -> vwatch debugger).
+  context.subscriptions.push(
+    vscode.commands.registerCommand("qb64pe.runWithoutDebugging", () =>
+      vscode.commands.executeCommand("workbench.action.debug.run")
+    )
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand("qb64pe.startDebugging", () =>
+      vscode.commands.executeCommand("workbench.action.debug.start")
+    )
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand("qb64pe.openWiki", () =>
+      vscode.commands.executeCommand(
+        "simpleBrowser.show",
+        "https://www.qb64phoenix.com/qb64wiki/"
+      )
+    )
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand("qb64pe.openSettings", () =>
+      vscode.commands.executeCommand(
+        "workbench.action.openSettings",
+        "@ext:grymmjack.qb64pe"
+      )
+    )
+  );
+  // Reveal (and un-hide) the QB64PE activity-bar panel. The command that opens a
+  // custom view container is workbench.view.extension.<containerId>.
+  context.subscriptions.push(
+    vscode.commands.registerCommand("qb64pe.focusView", () =>
+      vscode.commands.executeCommand("workbench.view.extension.qb64pe")
+    )
   );
 
   // Register Providers here
@@ -301,6 +341,9 @@ export async function activate(context: vscode.ExtensionContext) {
       vscode.ConfigurationTarget.Global
     );
   }
+
+  // QB64PE activity-bar links view.
+  registerLinksView(context);
 
   // Todo window stuff
   todoTreeProvider = new TodoTreeProvider();

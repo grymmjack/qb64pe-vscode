@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import * as debugadapter from "@vscode/debugadapter";
 import { QB64DebugSession } from "./QB64DebugSession";
 import { WorkspaceSymbolIndex } from "./WorkspaceSymbolIndex";
+import { compilerSettingArgs, CompilerArgOverrides, executableExtension } from "./compilerArgs";
 
 var ownTerminal: vscode.Terminal;
 
@@ -142,8 +143,16 @@ export class QB64PEDebugConfigurationProvider
 			return config;
 		}
 		if (config.noDebug) {
+			// Build & run WITHOUT $DEBUG. The output extension is per-OS configurable
+			// (qb64pe.run.*ExecutableExtension; defaults .exe on Windows, .run
+			// elsewhere) so it matches the F5 build and stays gitignorable. Honor the
+			// same qb64pe.debug.* compiler settings as the F5 build (per-launch
+			// overrides on the config win).
+			const out = `\${fileDirname}/\${fileBasenameNoExtension}${executableExtension()}`;
+			const { args } = compilerSettingArgs(config as CompilerArgOverrides);
+			const flags = args.map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(" ");
 			config.command =
-				"${config:qb64pe.compilerPath} -c ${file} -o ${fileDirname}/${fileBasenameNoExtension}.exe -x; ${fileDirname}/${fileBasenameNoExtension}.exe";
+				`\${config:qb64pe.compilerPath} -c \${file} -o "${out}" -x ${flags}; "${out}"`;
 			return config;
 		}
 		if (!config.program) {

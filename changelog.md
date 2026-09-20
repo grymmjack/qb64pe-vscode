@@ -2,6 +2,91 @@
 
 All notable changes to the "QB64 PE" extension will be documented in this file.
 
+## 0.20.40
+
+- Formatter: fixed indentation of **colon-joined block openers** (reported by a740g). A line like `DIM i AS LONG: FOR i = 5 TO 0 STEP -1` now correctly nests the loop body, because the formatter classifies every `:`-separated statement (net block depth) instead of only the first token. Inline `FOR … : … : NEXT` still nets to zero.
+- Fix: the **`.bak` (`-bak`) backup no longer ignores its setting.** `qb64pe.isCreateBakFileEnabled` (and lint-on-save) were read from a snapshot captured at activation, so toggling them off didn't take effect until reload; they're now read fresh on each save (reported by a740g).
+- Themes: the extension now lists the **QB64PE Theme pack** (`grymmjack.qb64pe-theme`) via `extensionPack`, so installing QB64PE offers the themes too.
+
+## 0.20.39
+
+- Fix: the panel's Font Awesome icons now render — the webview's `localResourceRoots` only allowed `images/`, so the bundled FA CSS/fonts under `media/` were blocked. Widened to the extension root.
+
+## 0.20.38
+
+- Side bar: the QB64PE panel now uses **Font Awesome** icons (bundled locally, matching the website's iconography) instead of emoji — GitHub, Wiki (book), Forum (comments), Discord (gamepad), Reddit, Patreon (handshake), etc. Added a **Patreon** link.
+
+## 0.20.37
+
+- Links: the Articles & Tutorials entries now use the wiki's real page URLs (e.g. ASCII Character Codes → /ASCII, Image file procedures → /Images, Removing line numbers → /Line_number, Resource Table extraction → #Extract_Icon), so every article resolves correctly.
+
+## 0.20.36
+
+- Side bar: the QB64PE panel is now a **single custom webview** — the logo sits flush at the top (no collapsible header, no gap), above Community + Reference links, a scrolling Articles & Tutorials list, and the "View Links in Internal Browser" checkbox at the bottom. (A container with one view hides the per-view title bar.)
+- Editor: a **QB64 logo button** in the title bar for `.bas`/`.bi`/`.bm`/`.inc` files reveals (and un-hides) the QB64PE panel.
+
+## 0.20.35
+
+- Side bar: an **Options** footer at the bottom of the QB64PE view with a **"View Links in Internal Browser"** checkbox — a surfaced, two-way mirror of `qb64pe.links.openInSimpleBrowser` (tick it or change the setting; they stay in sync).
+
+## 0.20.34
+
+- Side bar: the QB64PE view now shows the **QB64PE logo** (`images/qb64pe.svg`) at the top, centered with padding, above the Links and Articles views.
+
+## 0.20.33
+
+- Links: new setting **`qb64pe.links.openInSimpleBrowser`** (default off) — when on, Links & Community / Articles & Tutorials entries open inside VS Code's built-in Simple Browser instead of the external browser. (Some sites like Discord/YouTube refuse to embed and work better externally, hence the default.)
+
+## 0.20.32
+
+- Links: fixed the two non-wiki Articles & Tutorials entries — "Terry Ritchie's QB64 Game Programming" now points to https://www.qb64tutorial.com/ and "School Freeware series on QB64" to its YouTube playlist.
+
+## 0.20.31
+
+- Links: the QB64PE side bar now has **two independently-scrolling views** — **Links & Community** (Homepage, Forums, Wiki, Discord, Reddit, GitHub, Open VSX, plus a Reference section: Wiki Main Page, Keyword Reference Metacommands/Alphabetical/By Usage, Quick Reference Tables) and a separate **Articles & Tutorials** list (28 wiki articles) with its own scroller. Community URLs updated to the confirmed addresses (Discord/Reddit included).
+
+## 0.20.30
+
+- Polish: the QB64PE **activity-bar (rail) icon** now uses the background-less, monochrome QB64 logo (`qb64-light.svg`) so it renders as a clean silhouette that tints with the theme, instead of the full-color logo whose background masked to a solid square.
+
+## 0.20.29
+
+- New: a **settings cog** (`$(gear)`) — in the QB64PE Links view title bar and the editor title bar for QB64PE files — opens Settings filtered to this extension (`@ext:grymmjack.qb64pe`).
+- Links now point at the `www.qb64phoenix.com` domain (Homepage, Forums, Wiki, and the wiki quick links).
+
+## 0.20.28
+
+- New: a **QB64PE activity-bar icon** (left rail) opening a **Links & Community** view — Homepage, Forums, Wiki, Discord, Reddit, GitHub, plus quick wiki links (Main Page, Keyword Reference alphabetical/by-usage). Each item opens in your external browser. The link list is a simple table in `src/linksView.ts` (`LINK_SECTIONS`), easy to extend.
+- Fix: the **IndexDiagnostics output log now breaks counts down by severity** (errors/warnings/hints) instead of reporting a single "N problem(s)". Hint-severity diagnostics (e.g. unused locals) render as faded code in the editor but never appear in the Problems panel, so the old total looked like "10 problems" when the panel correctly showed 0. The message now says so.
+
+## 0.20.27
+
+- Editor: more **title-bar buttons** for QB64PE files — Lint (`$(check)`), Open in QB64PE IDE (`$(link-external)`), Help (`$(book)`), Align Source (`$(list-flat)`), and Open QB64PE Wiki (`$(globe)`, opens https://qb64phoenix.com/qb64wiki/ in the Simple Browser), alongside the existing Run/Debug buttons.
+- Fix: **file icons for `.bas`/`.bi`/`.bm`/`.inc` now actually apply.** The language icon pointed at `images/QB64PE-light.svg` / `QB64PE-dark.svg`, which don't exist — the real files are `qb64-light.svg` / `qb64-dark.svg`, so on case-sensitive filesystems (Linux) no icon ever loaded. (Note: a File Icon Theme that defines its own icon for these extensions still takes precedence — this is the fallback shown otherwise.)
+
+## 0.20.26
+
+- Run: the compiled **executable extension is now configurable per OS** — `qb64pe.run.windowsExecutableExtension` (default `.exe`), `qb64pe.run.macExecutableExtension` (default `.run`), `qb64pe.run.linuxExecutableExtension` (default `.run`). A leading dot is optional; empty means no extension. This lets you keep the common `.run` convention on macOS/Linux (so `.gitignore *.run` catches every build). The setting is honored by **both** the editor Run button / Run Without Debugging **and** the F5 debug build, so all produced binaries share the same name.
+
+## 0.20.25
+
+- Editor: the **Run button** in the editor title bar now uses the extension's own icon'd commands (▶ Run Without Debugging, and a debug ▶ Start Debugging) contributed to the title `navigation` group, so it reliably shows for `.bas`/`.bi`/`.bm`/`.inc` files instead of depending on VS Code's auto run-button (which wasn't appearing).
+
+## 0.20.24
+
+- Editor: a **Run button** (▶ with a dropdown) now appears in the editor title bar for `.bas`/`.bi`/`.bm`/`.inc` files, like Python and other languages — its default action is **Run Without Debugging**, with **Start Debugging** in the dropdown.
+- Run Without Debugging (Ctrl+F5): **no longer hardcodes `.exe`.** QB64PE only appends `.exe` on Windows and drops it elsewhere, so on Linux/macOS the compiled name and the run command disagreed; it now uses the platform-native output name (no extension on Linux/macOS).
+- Run Without Debugging now **honors your `qb64pe.debug.*` compiler settings** (`-f:MaxCompilerProcesses`, `OptimizeCppProgram`, `StripDebugSymbols`, `AbsoluteDebugPaths`, `ExtraCppFlags`, `ExtraLinkerFlags`) — the same flags as the F5 build, just without `$DEBUG`. The flag-building is now shared between the two paths so they can't drift.
+
+## 0.20.23
+
+- Diagnostics: the live **duplicate** check now honors precompiler conditionals. A name defined once in each mutually exclusive `$IF` / `$ELSEIF` / `$ELSE` / `$END IF` branch (e.g. a per-OS `CONST`) is no longer flagged as "already defined" — only one branch compiles, so the branches never coexist. Real duplicates within a single branch, or a branch redefining a top-level name, are still reported. Handles nesting and comment-style/indented metacommands.
+
+## 0.20.22
+
+- Lint: new **syntax-check-only** mode. `qb64pe.isLintSyntaxCheckOnly` (default off) runs the linter with QB64PE's `-z` — it translates the source and reports errors, emitting C to `internal/temp` **without** compiling/linking the executable, so lint is much faster (skips the g++ link). Off keeps the full `-c/-x` compile to a throwaway binary, which also surfaces C++/linker-stage errors. Under `-z` the linter no longer requires or deletes a build binary (none is produced).
+- Lint: compiler warnings (`-w`) are no longer hardcoded — new `qb64pe.isLintShowCompilerWarnings` (default on) toggles them.
+
 ## 0.20.21
 
 - Debugger: the F5 build now honors the QB64PE compiler settings from the IDE's **Compiler Settings** dialog, via new `qb64pe.debug.*` settings (and per-launch args): `optimizeCppProgram` (`-f:OptimizeCppProgram`), `stripDebugSymbols` (`-f:StripDebugSymbols`), `absoluteDebugPaths` (`-f:AbsoluteDebugPaths`), `extraCppFlags` (`-f:ExtraCppFlags`), and `extraLinkerFlags` (`-f:ExtraLinkerFlags`). The three toggles are tri-state — `default` leaves QB64PE's own setting alone; `on`/`off` emit an override. The extra-flags strings pass through when non-empty. All appear in the shown build command.

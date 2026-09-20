@@ -49,13 +49,29 @@ export function runLint() {
 			binaryName = binaryName + '.bin';
 		}
 
-		const command = `${compilerPath} -c "${sourceCode}" -o "${binaryName}" -x -w `;
+		// -z = translate-and-check only (no executable, C goes to internal/temp);
+		// otherwise a full -c/-x compile to a throwaway binary. -w is opt-in.
+		const syntaxCheckOnly: boolean = config.get("isLintSyntaxCheckOnly");
+		const showWarnings: boolean = config.get("isLintShowCompilerWarnings");
+
+		// Trade-off: `-z` is fast (skips the g++ link) but won't catch linker-stage
+		// errors; the full compile is slower but complete. Both still print the same
+		// "LINE n:" / warning output that lintCurrentFile() parses. The `-w` (warnings)
+		// axis is orthogonal to the mode, so compose it on afterward.
+		let command: string = syntaxCheckOnly
+			? `${compilerPath} -z "${sourceCode}"`
+			: `${compilerPath} -c "${sourceCode}" -o "${binaryName}" -x`;
+		if (showWarnings) {
+			command += " -w";
+		}
+
 		outputChannel.clear();
 		if (config.get("isShowLintChannelEnabled")) {
 			outputChannel.show(true)
 		}
 
-		if (!fs.existsSync(binaryName)) {
+		// The binary pre-check only makes sense for the full compile; -z never emits one.
+		if (!syntaxCheckOnly && !fs.existsSync(binaryName)) {
 			logFunctions.writeLine(`File: ${binaryName} Not Found`, outputChannel);
 			return;
 		}
@@ -72,8 +88,9 @@ export function runLint() {
 			if (stdout) {
 				logFunctions.writeLine(`${stdout}\n`, outputChannel);
 				lintCurrentFile(stdout);
-				logFunctions.writeLine(`Delete file ${binaryName}`, outputChannel);
-				if (sourceCode != binaryName) {
+				// -z leaves no executable to clean up.
+				if (!syntaxCheckOnly && sourceCode != binaryName) {
+					logFunctions.writeLine(`Delete file ${binaryName}`, outputChannel);
 					deleteFile(binaryName, outputChannel);
 				}
 			} else {

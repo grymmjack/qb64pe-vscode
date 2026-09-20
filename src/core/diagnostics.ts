@@ -13,6 +13,7 @@ import * as path from "path";
 import { SymbolIndex, normalizeBase, normalizeName, normalizePath } from "./index";
 import { QB64Symbol } from "./symbols";
 import { hasLineContinuation, scanLine, splitStatements } from "./lexer";
+import { BranchPath, branchPaths, condExclusive } from "./condCompile";
 import { isKeyword } from "./keywords";
 import {
   Range,
@@ -112,13 +113,34 @@ function duplicates(index: SymbolIndex, key: string, out: Diagnostic[]): void {
       else groups.set(group, [s]);
     }
   }
+  // Per-file `$IF`/`$ELSEIF`/`$ELSE`/`$END IF` branch maps, computed lazily: two
+  // definitions in different branches of the same construct never coexist.
+  const branchesByFile = new Map<string, BranchPath[]>();
+  const pathAt = (file: string, line: number): BranchPath => {
+    let paths = branchesByFile.get(file);
+    if (!paths) branchesByFile.set(file, (paths = branchPaths(index.get(file)?.lines ?? [])));
+    return paths[line] ?? new Map();
+  };
+  // Two symbols coexist unless they sit in mutually exclusive branches of the
+  // same file's conditional compilation. Cross-file pairs always coexist here.
+  const coexist = (a: QB64Symbol, b: QB64Symbol): boolean =>
+    a.file !== b.file || !condExclusive(pathAt(a.file, a.line), pathAt(b.file, b.line));
+
   for (const list of groups.values()) {
     if (list.length < 2) continue;
-    const [first, ...rest] = list; // unit order: this file first, then includes
-    for (const dup of rest) {
+    // unit order: this file first, then includes. Report a symbol only when an
+    // earlier definition actually coexists with it (so per-OS `$IF` branches,
+    // which are exclusive, aren't flagged as redefinitions).
+    for (let i = 0; i < list.length; i++) {
+      const dup = list[i];
       if (dup.file !== key) continue;
+      let prior: QB64Symbol | undefined;
+      for (let j = 0; j < i; j++) {
+        if (coexist(list[j], dup)) { prior = list[j]; break; }
+      }
+      if (!prior) continue;
       const kind = dup.type === "LABEL" ? "Label" : dup.type;
-      const where = `${path.basename(first.file)}:${first.line + 1}`;
+      const where = `${path.basename(prior.file)}:${prior.line + 1}`;
       report(index, out, dup, `${kind} '${dup.name}' is already defined (${where}).`, "error", "duplicate");
     }
   }

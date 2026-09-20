@@ -84,6 +84,43 @@ describe("core/diagnostics", () => {
     ]);
   });
 
+  it("does not flag a name defined once per exclusive $IF branch", () => {
+    // Per-OS CONST: one definition in each mutually exclusive precompiler branch
+    // is legal — only one branch is ever compiled.
+    assert.deepStrictEqual(
+      check([
+        "$IF MAC THEN",
+        "  CONST P = \"mac\"",
+        "$ELSEIF LINUX THEN",
+        "  CONST P = \"linux\"",
+        "$ELSEIF WIN THEN",
+        "  CONST P = \"win\"",
+        "$ELSE",
+        "  CONST P = \"\"",
+        "$END IF",
+      ]).filter((d) => d.includes("duplicate")),
+      []
+    );
+  });
+
+  it("still flags a real duplicate within one $IF branch, or one shared with top level", () => {
+    // Two definitions in the SAME branch are a duplicate...
+    assert.deepStrictEqual(
+      check([
+        "$IF WIN THEN", "  CONST P = 1", "  CONST P = 2", "$END IF",
+      ]).filter((d) => d.includes("duplicate")),
+      ["2:duplicate:error:CONST 'P' is already defined (diag.bas:2)."]
+    );
+    // ...and a top-level definition coexists with every branch, so a branch that
+    // redefines it is still flagged.
+    assert.deepStrictEqual(
+      check([
+        "CONST P = 0", "$IF WIN THEN", "  CONST P = 1", "$END IF",
+      ]).filter((d) => d.includes("duplicate")),
+      ["2:duplicate:error:CONST 'P' is already defined (diag.bas:1)."]
+    );
+  });
+
   it("allows the same label name in different scopes, but not within one scope", () => {
     // Same label 'retry' in two different SUBs and at module level: all legal.
     assert.deepStrictEqual(

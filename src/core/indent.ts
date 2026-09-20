@@ -113,9 +113,28 @@ const NONE: LineClass = {
   continuation: false,
 };
 
-/** Classify a physical line by its block role, using masked (string/comment-free) code. */
+/** Split masked code into statements at the lexer's statement-separating colons. */
+function splitAtColons(code: string, colons: number[]): string[] {
+  if (!colons || colons.length === 0) return [code];
+  const parts: string[] = [];
+  let start = 0;
+  for (const idx of colons) {
+    if (idx >= start && idx <= code.length) {
+      parts.push(code.slice(start, idx));
+      start = idx + 1;
+    }
+  }
+  parts.push(code.slice(start));
+  return parts;
+}
+
+/**
+ * Classify a physical line by its block role, using masked (string/comment-free)
+ * code. Colon-joined statements are handled: a block keyword in any statement
+ * counts, so `DIM i AS LONG: FOR i = 0 TO 9` opens a FOR body (reported by
+ * a740g — previously only the first token, `DIM`, was examined).
+ */
 export function classify(raw: string, opts: IndentOptions = {}): LineClass {
-  const indentSubs = opts.indentSubs !== false;
   const scan = scanLine(raw);
   // Metacommand conditional blocks ($IF / $ELSE / $END IF).
   if (scan.isMetacommand) {
@@ -126,13 +145,48 @@ export function classify(raw: string, opts: IndentOptions = {}): LineClass {
     return NONE;
   }
 
-  const code = scan.mask.replace(/'.*$/, "").trim();
-  const continuation = /_\s*$/.test(code);
-  const upper = code.toUpperCase();
+  const codeFull = scan.mask.replace(/'.*$/, "");
+  const continuation = /_\s*$/.test(codeFull.trim());
+  const stmts = splitAtColons(codeFull, scan.colons).map((s) => s.trim()).filter((s) => s.length > 0);
+
+  // Single statement (the overwhelming majority): classify it directly.
+  if (stmts.length <= 1) return { ...classifyStatement(stmts[0] ?? "", opts), continuation };
+
+  // Multiple statements. How the line RENDERS comes from the first statement
+  // (e.g. `NEXT i : x = 1` dedents); the NET block delta comes from all of them
+  // (so `DIM i: FOR …` opens, and an inline `FOR …: … : NEXT` nets to zero).
+  const primary = classifyStatement(stmts[0], opts);
+  // SELECT/CASE need the select stack in reindentLines; a multi-statement line
+  // starting with one is not real code — defer to the first statement's class.
+  if (primary.select || primary.case || primary.endSelect) return { ...primary, continuation };
+
+  let delta = 0;
+  for (const s of stmts) {
+    const cs = classifyStatement(s, opts);
+    if (cs.opens) delta += 1;
+    else if (cs.closes) delta -= 1;
+  }
+
+  if (primary.mid || primary.closes) {
+    // Line renders one level out. Depth then follows the net delta.
+    if (delta < 0) return { ...NONE, closes: true, continuation }; // e.g. NEXT i : x = 1
+    return { ...NONE, mid: true, continuation }; // renders out, net depth unchanged
+  }
+  // First statement is neutral or an opener: render at current depth.
+  if (delta > 0) return { ...NONE, opens: true, continuation };
+  if (delta < 0) return { ...NONE, closes: true, continuation };
+  return { ...NONE, continuation };
+}
+
+/** Classify a single statement (no statement-separating colons) by block role. */
+function classifyStatement(code: string, opts: IndentOptions = {}): LineClass {
+  const indentSubs = opts.indentSubs !== false;
+  const upper = code.trim().toUpperCase();
+  if (!upper) return NONE;
   const first = upper.split(/[\s:(]/, 1)[0];
 
   const has = (re: RegExp) => re.test(upper);
-  const r = (over: Partial<LineClass>): LineClass => ({ ...NONE, ...over, continuation });
+  const r = (over: Partial<LineClass>): LineClass => ({ ...NONE, ...over });
 
   // SELECT ... / CASE ... / END SELECT
   if (/^END\s+SELECT\b/.test(upper) || first === "ENDSELECT") return r({ endSelect: true });
