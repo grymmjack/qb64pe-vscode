@@ -216,4 +216,43 @@ describe("QB64PE providers (extension host)", function () {
       "vscode.provideDocumentSemanticTokens", basics.uri);
     assert.ok(tokens && tokens.data.length >= 5 * 10, `got ${tokens?.data.length ?? 0} ints`);
   });
+
+  it("format puts labels on their own line, but not `Sub1: Sub2` calls", async () => {
+    const file = path.join(os.tmpdir(), `qb64pe-int-labels-${process.pid}.bas`);
+    fs.writeFileSync(file, ["retry: PRINT 1", "Sub1: Sub2", "GOTO retry", "SUB Sub1", "END SUB", "SUB Sub2", "END SUB", ""].join("\n"));
+    try {
+      const doc = await vscode.workspace.openTextDocument(file);
+      const edits = await vscode.commands.executeCommand<vscode.TextEdit[]>(
+        "vscode.executeFormatDocumentProvider", doc.uri, { tabSize: 4, insertSpaces: true });
+      const out = new vscode.WorkspaceEdit();
+      out.set(doc.uri, edits ?? []);
+      await vscode.workspace.applyEdit(out);
+      assert.deepStrictEqual(doc.getText().split("\n").slice(0, 4), ["retry:", "PRINT 1", "Sub1: Sub2", "GOTO retry"]);
+    } finally {
+      try { fs.unlinkSync(file); } catch { /* ignore */ }
+    }
+  });
+
+  it("lint (-z) streams to a terminal and reports compiler errors as Problems", async function () {
+    const compiler = process.env.QB64PE_COMPILER ?? path.resolve(__dirname, "../../../../../qb64pe/qb64pe");
+    if (!fs.existsSync(compiler)) return this.skip();
+    this.timeout(60000);
+    const file = path.join(os.tmpdir(), `qb64pe-int-lint-${process.pid}.bas`);
+    fs.writeFileSync(file, ["x = 1", "PRINT x", "GOTO nowhere", ""].join("\n"));
+    const config = vscode.workspace.getConfiguration("qb64pe");
+    await config.update("compilerPath", compiler, vscode.ConfigurationTarget.Global);
+    try {
+      const doc = await vscode.workspace.openTextDocument(file);
+      await vscode.window.showTextDocument(doc);
+      await vscode.commands.executeCommand("extension.runLint");
+      const lint = () => vscode.languages.getDiagnostics(doc.uri).filter((d) => d.source === "QB64PE-lint");
+      assert.ok(await waitFor(() => lint().length > 0, 50000), "no QB64PE-lint diagnostics");
+      assert.strictEqual(lint()[0].range.start.line, 2);
+      assert.match(lint()[0].message, /Label 'nowhere' not defined/);
+      assert.ok(vscode.window.terminals.some((t) => t.name === "QB64PE: Lint"), "no lint terminal");
+    } finally {
+      await config.update("compilerPath", undefined, vscode.ConfigurationTarget.Global);
+      try { fs.unlinkSync(file); } catch { /* ignore */ }
+    }
+  });
 });

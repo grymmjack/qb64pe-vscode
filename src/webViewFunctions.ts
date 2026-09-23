@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { openLink } from "./linksView";
 
 
 export function setupAsciiChart(context: vscode.ExtensionContext) {
@@ -10,6 +11,17 @@ export function setupAsciiChart(context: vscode.ExtensionContext) {
 				panel.title = "Ascii Chart";
 				panel.webview.html = getAsciiChart();
 			};
+
+			// Reference links follow the panel's "View Links in Internal Browser" box.
+			panel.webview.onDidReceiveMessage(
+				(msg) => {
+					if (msg?.type === "open" && typeof msg.url === "string" && /^https?:\/\//.test(msg.url)) {
+						openLink(msg.url);
+					}
+				},
+				null,
+				context.subscriptions
+			);
 
 			updateWebview();
 			const interval = setInterval(updateWebview, 1000);
@@ -65,6 +77,15 @@ function getAsciiChart() {
 		</style>
 	
 		<script>
+			const vscode = acquireVsCodeApi();
+			document.addEventListener("click", (e) => {
+				const a = e.target.closest && e.target.closest("a[href]");
+				if (a) {
+					e.preventDefault();
+					vscode.postMessage({ type: "open", url: a.href });
+				}
+			});
+
 			function init() {
 				setTheme();
 				addOnClick();

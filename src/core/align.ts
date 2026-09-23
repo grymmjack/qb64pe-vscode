@@ -15,6 +15,9 @@
  *   colons       align `:` statement separators
  *   comments     align inline `'` comments to a shared column
  *
+ * Given `isRoutine`, a `label: statement` line is first split so the label
+ * stands on its own line (see labels.ts) — the one pass that changes line count.
+ *
  * `scope` controls grouping for declarations / colons / comments:
  *   "block"   group within SUB/FUNCTION/TYPE blocks and indent level (global-ish)
  *   "section" group between blank / pure-comment delimiter lines
@@ -25,6 +28,7 @@
  * extra spaces it introduces).
  */
 import { scanLine } from "./lexer";
+import { splitInlineLabels } from "./labels";
 
 export interface AlignOptions {
   /** Align `=` in consecutive assignment blocks. */
@@ -41,9 +45,14 @@ export interface AlignOptions {
   scope?: "block" | "section";
   /** Spaces to leave at each alignment column (default 1). */
   gap?: number;
+  /**
+   * When given, split `label: statement` lines so the label stands alone.
+   * Must return true for any SUB/FUNCTION name (and when unsure).
+   */
+  isRoutine?: (name: string) => boolean;
 }
 
-const DEFAULTS: Required<AlignOptions> = {
+const DEFAULTS: Required<Omit<AlignOptions, "isRoutine">> = {
   assignments: true,
   declarations: true,
   case: true,
@@ -59,6 +68,7 @@ export function align(text: string, options: AlignOptions = {}): string {
   const eol = text.includes("\r\n") ? "\r\n" : "\n";
   let lines = text.split(/\r?\n/);
 
+  if (o.isRoutine) lines = splitInlineLabels(lines, o.isRoutine);
   // Order mirrors align-qb64pe.py: structural columns first, comments last so
   // they line up against the already-padded code.
   if (o.assignments) lines = alignAssignments(lines, o.gap);

@@ -112,6 +112,19 @@ describe("core/parser: statements and implicit declarations", () => {
     assert.deepStrictEqual(symbols.map((s) => s.name), ["again"]);
   });
 
+  it("only treats `name:` alone on its line as a label, not `Sub1: Sub2`", () => {
+    const symbols = parse([
+      "handler: ' comment",
+      "cursor_erase: cursor_draw",
+      "DeleteSave: SaveSettings",
+      "done:",
+    ]);
+    assert.deepStrictEqual(
+      symbols.filter((s) => s.type === "LABEL").map((s) => s.name),
+      ["handler", "done"]
+    );
+  });
+
   it("creates implicit variables from first assignment and FOR, once", () => {
     const symbols = parse([
       "score = 5",

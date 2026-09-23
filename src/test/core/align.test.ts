@@ -99,4 +99,14 @@ describe("core/align", () => {
     const src = "x = 1\r\nyy = 2";
     assert.ok(align(src, only({ assignments: true })).includes("\r\n"));
   });
+
+  it("puts labels on their own line when given isRoutine, but not `Sub1: Sub2`", () => {
+    const src = ["retry: PRINT x", "cursor_erase: cursor_draw"].join("\n");
+    const isRoutine = (n: string) => /^cursor_/i.test(n);
+    assert.strictEqual(
+      align(src, only({ isRoutine })),
+      ["retry:", "PRINT x", "cursor_erase: cursor_draw"].join("\n")
+    );
+    assert.strictEqual(align(src, only({})), src); // no isRoutine: never split
+  });
 });

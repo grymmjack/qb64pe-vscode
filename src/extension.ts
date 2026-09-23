@@ -75,7 +75,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   vscode.workspace.onDidSaveTextDocument(() => {
     if (vscode.workspace.getConfiguration("qb64pe").get("isLintOnSaveEnabled")) {
-      runLint();
+      lintFunctions.runLint(false); // quiet: no terminal pops up on every save
     }
   });
 
@@ -142,11 +142,6 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   );
   context.subscriptions.push(
-    vscode.commands.registerCommand("qb64pe.alignSource", () => {
-      alignSource();
-    })
-  );
-  context.subscriptions.push(
     vscode.commands.registerCommand("qb64pe.debugRebuild", () => {
       debugRebuild();
     })
@@ -192,6 +187,9 @@ export async function activate(context: vscode.ExtensionContext) {
   // One workspace-wide symbol index shared by every language provider.
   const workspaceIndex = new WorkspaceSymbolIndex();
   context.subscriptions.push(workspaceIndex);
+  context.subscriptions.push(
+    vscode.commands.registerCommand("qb64pe.alignSource", () => alignSource(workspaceIndex))
+  );
   const helpService = new HelpService(context);
 
   context.subscriptions.push(
@@ -221,7 +219,7 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.languages.registerDocumentFormattingEditProvider(
       documentSelector,
-      new DocumentFormattingEditProvider()
+      new DocumentFormattingEditProvider(workspaceIndex)
     )
   );
   context.subscriptions.push(
@@ -487,7 +485,7 @@ export async function debugRebuild(): Promise<void> {
  * because padding interior columns is more invasive than the whitespace-only
  * indentation the formatter does.
  */
-export function alignSource() {
+export async function alignSource(workspaceIndex: WorkspaceSymbolIndex) {
   try {
     const editor = vscode.window.activeTextEditor;
     if (!editor) {
@@ -516,6 +514,11 @@ export function alignSource() {
       document.lineAt(endLine).range.end
     );
 
+    // Labels stand on their own line (`retry: PRINT x` -> `retry:` + `PRINT x`);
+    // the index tells a label from a no-argument SUB call (`Sub1: Sub2`).
+    await workspaceIndex.whenReady();
+    options.isRoutine = workspaceIndex.routinePredicate(document);
+
     const original = document.getText(range);
     const aligned = align(original, options);
     if (aligned === original) {
@@ -523,7 +526,7 @@ export function alignSource() {
     }
     const edit = new vscode.WorkspaceEdit();
     edit.replace(document.uri, range, aligned);
-    vscode.workspace.applyEdit(edit);
+    await vscode.workspace.applyEdit(edit);
   } catch (error) {
     vscode.window.showErrorMessage(`Error in alignSource: ${error}`);
   }
@@ -608,7 +611,7 @@ export function showHelpByName(itemName: string) {
  * Compiles the current file then lints the current file.
  */
 export function runLint() {
-  lintFunctions.runLint();
+  lintFunctions.runLint(true);
 }
 
 /**

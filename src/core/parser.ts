@@ -232,9 +232,13 @@ function processLine(
     code = code.substring(lineNumberLabel[0].length);
   }
 
+  // A named label stands alone on its line (`handler:`, optionally followed by
+  // a comment). `name: stmt` is a compound statement — typically a no-argument
+  // SUB call (`cursor_erase: cursor_draw`) — not a label.
   let statements = splitStatements(code);
   if (
-    statements.length >= 2 &&
+    statements.length === 2 &&
+    statements[1].text === "" &&
     RE.label.test(statements[0].text) &&
     !NOT_A_LABEL.has(statements[0].text.toUpperCase())
   ) {

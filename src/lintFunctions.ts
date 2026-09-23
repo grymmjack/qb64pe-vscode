@@ -1,7 +1,7 @@
 "use strict";
 import * as vscode from "vscode";
 import path from "path";
-import { exec } from "child_process";
+import { ChildProcess, exec } from "child_process";
 import * as commonFunctions from "./commonFunctions";
 import * as logFunctions from "./logFunctions";
 import os from 'os';
@@ -10,14 +10,67 @@ import fs from 'fs';
 var diagnosticCollection: vscode.DiagnosticCollection = vscode.languages.createDiagnosticCollection('QB64PE-lint')
 
 /**
- * Runs the compiler/linter then calls lintCurrentFile with the output.
+ * The "QB64PE: Lint" terminal: a pseudoterminal we own, so the compiler's live
+ * output is shown to the user while we still capture it to build diagnostics.
+ * Reused across runs; recreated if the user closes it.
  */
-export function runLint() {
+class LintTerminal {
+	private readonly writeEmitter = new vscode.EventEmitter<string>();
+	private terminal: vscode.Terminal | undefined;
+	private opened = false;
+	private pending = "";
+
+	get exists(): boolean {
+		return !!this.terminal;
+	}
+
+	show(): void {
+		if (!this.terminal) {
+			this.opened = false;
+			const pty: vscode.Pseudoterminal = {
+				onDidWrite: this.writeEmitter.event,
+				open: () => {
+					this.opened = true;
+					if (this.pending) this.writeEmitter.fire(this.pending);
+					this.pending = "";
+				},
+				close: () => { this.terminal = undefined; },
+			};
+			this.terminal = vscode.window.createTerminal({ name: "QB64PE: Lint", pty });
+		}
+		this.terminal.show(true);
+	}
+
+	/** Writes text (LF line endings are converted for the terminal). */
+	write(text: string): void {
+		if (!this.terminal) return;
+		const data = text.replace(/\r?\n/g, "\r\n");
+		if (this.opened) this.writeEmitter.fire(data);
+		else this.pending += data;
+	}
+
+	clear(): void {
+		this.write("\x1b[2J\x1b[3J\x1b[H");
+	}
+}
+
+const lintTerminal = new LintTerminal();
+let running: ChildProcess | undefined;
+
+/**
+ * Lints the active file with the QB64PE compiler (`-z` syntax check by default)
+ * and turns its output into Problems. Run from the Lint command, the output
+ * streams into the "QB64PE: Lint" terminal (shown when
+ * qb64pe.isShowLintChannelEnabled); lint-on-save runs quietly and only writes
+ * to that terminal if it is already open.
+ */
+export function runLint(fromCommand = true) {
 	const outputChannel: any = logFunctions.getChannel(logFunctions.channelType.lint);
 
 	try {
-		if (!vscode.window.activeTextEditor) {
-			logFunctions.writeLine("Cannot find activeTextEditor", outputChannel);
+		const document = vscode.window.activeTextEditor?.document;
+		if (!document) {
+			if (fromCommand) vscode.window.showInformationMessage("Lint: open a QB64PE source file first.");
 			return;
 		}
 
@@ -25,21 +78,13 @@ export function runLint() {
 		let compilerPath: string = config.get("compilerPath");
 
 		if (!compilerPath) {
-			logFunctions.writeLine("The QB64PE compiler path is not set.", outputChannel);
+			if (fromCommand) vscode.window.showWarningMessage("Lint: set qb64pe.compilerPath to your QB64PE compiler first.");
 			return;
 		}
 
-		/*
-		if (os.platform() == "win32") {
-			compilerPath = path.join(compilerPath, "qb64pe.exe");
-		} else {
-			compilerPath = path.join(compilerPath, "qb64pe");
-		}
-		*/
-
 		compilerPath = compilerPath.replaceAll("\\", "/");
 
-		let sourceCode = vscode.window.activeTextEditor.document.fileName;
+		let sourceCode = document.fileName;
 		let baseFilename = path.dirname(sourceCode) + "/" + path.basename(sourceCode);
 		let binaryName = baseFilename;
 
@@ -51,7 +96,7 @@ export function runLint() {
 
 		// -z = translate-and-check only (no executable, C goes to internal/temp);
 		// otherwise a full -c/-x compile to a throwaway binary. -w is opt-in.
-		const syntaxCheckOnly: boolean = config.get("isLintSyntaxCheckOnly");
+		const syntaxCheckOnly: boolean = config.get("isLintSyntaxCheckOnly", true);
 		const showWarnings: boolean = config.get("isLintShowCompilerWarnings");
 
 		// Trade-off: `-z` is fast (skips the g++ link) but won't catch linker-stage
@@ -65,38 +110,47 @@ export function runLint() {
 			command += " -w";
 		}
 
-		outputChannel.clear();
-		if (config.get("isShowLintChannelEnabled")) {
-			outputChannel.show(true)
+		// A newer lint supersedes one still running (e.g. rapid saves).
+		running?.kill();
+		running = undefined;
+
+		if (fromCommand && config.get("isShowLintChannelEnabled", true)) {
+			lintTerminal.show();
 		}
+		lintTerminal.clear();
 
 		// The binary pre-check only makes sense for the full compile; -z never emits one.
 		if (!syntaxCheckOnly && !fs.existsSync(binaryName)) {
-			logFunctions.writeLine(`File: ${binaryName} Not Found`, outputChannel);
+			lintTerminal.write(`File: ${binaryName} Not Found\n`);
 			return;
 		}
 
-		logFunctions.writeLine(`Running: ${command}`, outputChannel);
+		lintTerminal.write(`\x1b[1;36m$ ${command}\x1b[0m\n\n`);
 
-		exec(command, (error, stdout, stderr) => {
-			if (error) {
-				logFunctions.writeLine(error.message, outputChannel);
-			}
-			if (stderr) {
-				logFunctions.writeLine(stderr, outputChannel);
+		const child = exec(command, { maxBuffer: 16 * 1024 * 1024 }, (error, stdout, stderr) => {
+			if (running === child) running = undefined;
+			if (child.killed) return;
+			if (error && !stdout && !stderr) {
+				lintTerminal.write(`${error.message}\n`);
 			}
 			if (stdout) {
-				logFunctions.writeLine(`${stdout}\n`, outputChannel);
-				lintCurrentFile(stdout);
+				// The compiler colors its output (ANSI escapes), which the parser
+				// can't see through; the terminal above shows it colored.
+				const problems = lintCurrentFile(stdout.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, ""), document);
+				lintTerminal.write(problems > 0
+					? `\n\x1b[1;31m${problems} problem(s) found — see the Problems panel.\x1b[0m\n`
+					: `\n\x1b[1;32mNo problems found.\x1b[0m\n`);
 				// -z leaves no executable to clean up.
 				if (!syntaxCheckOnly && sourceCode != binaryName) {
-					logFunctions.writeLine(`Delete file ${binaryName}`, outputChannel);
 					deleteFile(binaryName, outputChannel);
 				}
 			} else {
-				logFunctions.writeLine("No stdout from qb64pe.exe found", outputChannel);
+				lintTerminal.write("No output from the QB64PE compiler.\n");
 			}
 		});
+		running = child;
+		child.stdout?.on("data", (chunk) => lintTerminal.write(String(chunk)));
+		child.stderr?.on("data", (chunk) => lintTerminal.write(String(chunk)));
 
 	} catch (error) {
 		logFunctions.writeLine(`ERROR in runLint: ${error}`, outputChannel);
@@ -125,18 +179,14 @@ function deleteFile(fileName: string, outputChannel: any) {
 /**
  * Decorates the code file with output from the compiler
  * @param compilerOutput The contents of the compiler output.
- * @returns void
+ * @param document The document that was linted.
+ * @returns The number of diagnostics published.
  */
-function lintCurrentFile(compilerOutput: string) {
+function lintCurrentFile(compilerOutput: string, document: vscode.TextDocument): number {
 	const outputChannel: any = logFunctions.getChannel(logFunctions.channelType.lint);
 	const lintSource = "QB64PE-lint"
 
 	try {
-		let document: vscode.TextDocument = vscode.window.activeTextEditor.document;
-		if (!document) {
-			outputChannel.appendLine("Unable to find document");
-			return;
-		}
 		let sourceCode: string[] = document.getText().split('\n')
 
 		diagnosticCollection.set(document.uri, []);
@@ -247,8 +297,10 @@ function lintCurrentFile(compilerOutput: string) {
 		if (diagnostics.length > 0) {
 			diagnosticCollection.set(document.uri, diagnostics);
 		}
+		return diagnostics.length;
 
 	} catch (error) {
 		logFunctions.writeLine(`ERROR: ${error}`, outputChannel);
+		return 0;
 	}
 }

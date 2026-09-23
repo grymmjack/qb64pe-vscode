@@ -2,7 +2,7 @@
   "name": "qb64pe",
   "displayName": "QB64PE",
   "description": "QB64PE (Phoenix Edition) language support for Visual Studio Code with intelligent code completion and 500+ keywords.",
-  "version": "0.20.41",
+  "version": "0.20.55",
   "engines": {
     "vscode": "^1.78.1"
   },
@@ -44,7 +44,7 @@
       "activitybar": [
         {
           "id": "qb64pe",
-          "title": "QB64PE",
+          "title": "QB64PE PHOENIX EDITION",
           "icon": "images/qb64-light.svg"
         }
       ]
@@ -53,7 +53,7 @@
       "qb64pe": [
         {
           "id": "qb64pe.main",
-          "name": "QB64PE",
+          "name": "QB64PE PHOENIX EDITION",
           "type": "webview"
         }
       ],
@@ -457,11 +457,11 @@
         "qb64pe.isShowLintChannelEnabled": {
           "type": "boolean",
           "default": true,
-          "description": "Lint|Enable: Show the lint channel when running lint."
+          "description": "Lint|Enable: Show the \"QB64PE: Lint\" terminal (live compiler output) when you run the Lint command. Lint-on-save never pops it up; it only writes there if the terminal is already open."
         },
         "qb64pe.isLintSyntaxCheckOnly": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "Lint|Compiler: Syntax-check only (-z). Runs QB64PE's translate-and-check pass and emits C to internal/temp WITHOUT compiling/linking the executable, so lint is much faster. Off = full compile (-c/-x) to a throwaway binary, which also surfaces C++/linker-stage errors."
         },
         "qb64pe.isLintShowCompilerWarnings": {

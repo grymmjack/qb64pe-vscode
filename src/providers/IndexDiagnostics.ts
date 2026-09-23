@@ -53,35 +53,12 @@ export class IndexDiagnostics implements vscode.Disposable {
       return;
     }
     try {
-      let scanned = 0;
       for (const document of vscode.workspace.textDocuments) {
         if (document.languageId !== "QB64PE" || document.uri.scheme !== "file") continue;
-        scanned++;
         this.workspaceIndex.ensureDocument(document);
         const key = this.workspaceIndex.keyOf(document);
         const diagnostics = diagnose(this.workspaceIndex.index, key);
         this.collection.set(document.uri, diagnostics.map(toVsDiagnostic));
-        // Break the count down by severity. Hint-severity diagnostics (e.g.
-        // unused locals) render as faded code in the editor but do NOT appear in
-        // the Problems panel, so a plain total is misleading (looks like N
-        // problems when the panel shows 0). Call that out explicitly.
-        const errors = diagnostics.filter((d) => d.severity === "error").length;
-        const warnings = diagnostics.filter((d) => d.severity === "warning").length;
-        const hints = diagnostics.filter((d) => d.severity === "hint").length;
-        const note =
-          hints > 0 && errors + warnings === 0
-            ? "  (hints show as faded code in the editor, not in the Problems panel)"
-            : "";
-        logFunctions.writeLine(
-          `IndexDiagnostics: ${document.fileName} → ${errors} error(s), ${warnings} warning(s), ${hints} hint(s)${note}`,
-          this.outputChannel
-        );
-      }
-      if (scanned === 0) {
-        logFunctions.writeLine(
-          "IndexDiagnostics: no open QB64PE 'file' documents to scan.",
-          this.outputChannel
-        );
       }
     } catch (error) {
       logFunctions.writeLine(`ERROR in IndexDiagnostics: ${error}`, this.outputChannel);

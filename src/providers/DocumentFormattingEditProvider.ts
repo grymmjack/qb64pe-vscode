@@ -3,12 +3,16 @@ import * as vscode from "vscode";
 import * as logFunctions from "../logFunctions";
 import { TokenInfo } from "../TokenInfo";
 import { reindentLines } from "../core/indent";
-import { scanLine } from "../core/lexer";
+import { hasLineContinuation, scanLine } from "../core/lexer";
+import { splitInlineLabel } from "../core/labels";
+import { WorkspaceSymbolIndex } from "./WorkspaceSymbolIndex";
 
 // Code Formatter
 // Seems like a good place to find includes and make the double click to open work.
 export class DocumentFormattingEditProvider implements vscode.DocumentFormattingEditProvider {
 	outputChannel: any = logFunctions.getChannel(logFunctions.channelType.formatter);
+
+	constructor(private readonly workspaceIndex: WorkspaceSymbolIndex) { }
 	//regexOperators = /\s+,|\(|\)|\+|-|=|<|>|\[|\]|\/|{|}|`|;|:|\*|:\s+/g;
 
 	/**
@@ -263,12 +267,31 @@ export class DocumentFormattingEditProvider implements vscode.DocumentFormatting
 				contentLines.push(newLine);
 			}
 
+			// Labels stand on their own line: `retry: PRINT x` -> `retry:` + `PRINT x`.
+			// Never for `Sub1: Sub2` (a no-argument SUB call), which needs the index.
+			await this.workspaceIndex.whenReady();
+			if (token.isCancellationRequested) {
+				return null;
+			}
+			const isRoutine = this.workspaceIndex.routinePredicate(document);
+			const groups: string[][] = [];
+			let continued = false;
+			for (const line of contentLines) {
+				groups.push((!continued && splitInlineLabel(line, isRoutine)) || [line]);
+				continued = hasLineContinuation(line);
+			}
+
 			// Pass 2: block-aware indentation (leading whitespace only).
-			const indentedLines = reindentLines(contentLines, indent, { indentSubs });
+			const indentedLines = reindentLines(groups.flat(), indent, { indentSubs });
+			const eol = document.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
+			let next = 0;
 			for (let lineNumber = 0; lineNumber < document.lineCount; lineNumber++) {
 				const originalLine = document.lineAt(lineNumber);
-				if (indentedLines[lineNumber] !== originalLine.text) {
-					retvalue.push(vscode.TextEdit.replace(originalLine.range, indentedLines[lineNumber]));
+				const count = groups[lineNumber].length;
+				const text = indentedLines.slice(next, next + count).join(eol);
+				next += count;
+				if (text !== originalLine.text) {
+					retvalue.push(vscode.TextEdit.replace(originalLine.range, text));
 				}
 			}
 

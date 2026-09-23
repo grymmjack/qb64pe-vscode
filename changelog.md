@@ -2,6 +2,71 @@
 
 All notable changes to the "QB64 PE" extension will be documented in this file.
 
+## 0.20.55
+
+- Side bar: section headings (Community, Reference, Keywords, Articles & Tutorials) sit on a full-width dark band (black at 50%), so each pane's header stands out from its scrolling list. The heading text is dimmed by its color rather than by fading the whole header, so the Reference search box now shows at full brightness.
+
+## 0.20.54
+
+- Side bar: the logo, quick menu and **Community** section now stay fixed. **Reference, Keywords and Articles & Tutorials are resizable panes** below them, like VS Code's own side-bar views. Each open pane scrolls on its own, and you drag the line between two panes to resize them. Collapsed panes shrink to just their header. Reference's search box stays in its header.
+- Side bar: **the panel remembers its layout** (which panes are open and their heights) across closing and reopening the view and restarting VS Code.
+
+## 0.20.53
+
+- Side bar: fixed links sliding under the logo row and being cut off (e.g. a half-visible "Homepage") in a short panel. The links area was its own scroll region. The panel now scrolls as one; Articles & Tutorials still fills any spare height and scrolls inside itself, and the "View Links in Internal Browser" footer stays pinned to the bottom.
+
+## 0.20.52
+
+- Side bar: **Reference, Keywords and Articles & Tutorials are collapsible**. Click the caret or heading to fold a section. Reference's search box stays in its header, so search is always available even when Reference is collapsed. Reference and Articles start open and Keywords starts closed; each remembers how you left it. The "View Links in Internal Browser" footer stays pinned to the bottom.
+
+## 0.20.51
+
+- Side bar: **Community is now two columns**: Homepage, Forums and Wiki on the left, Discord, Reddit and Patreon on the right. Below a divider, GitHub (QB64PE) and This Extension on Open VSX span the full width. The logo row uses the same 50/50 split, so the quick menu and the right-hand links line up.
+
+## 0.20.50
+
+- Side bar: a collapsible **KEYWORDS** section. Click to twirl it open for the 35 topics of the wiki's *Keyword Reference — By Usage* page (Arrays and Data Storage … QB64 Programming References), each linking straight to its section. The panel remembers whether it's open or closed.
+- Side bar: when the links outgrow the panel, the links area scrolls on its own, and Articles & Tutorials keeps a usable height instead of shrinking to nothing.
+- Side bar: the Quick Reference — Tables sub-bullets are indented less.
+
+## 0.20.49
+
+- ASCII Chart: the reference links (QB64PE Wiki ASCII / Unicode, Unicode Compart) now follow the panel's **View Links in Internal Browser** checkbox. They open in VS Code's internal browser when it's checked, and in your browser when it isn't.
+
+## 0.20.48
+
+- Side bar: the panel title now reads **QB64PE PHOENIX EDITION**.
+
+## 0.20.47
+
+- Lint: **runs in a "QB64PE: Lint" terminal** instead of the Output panel. The compiler's live, colored output (progress bar and errors) streams into a reusable terminal, and errors still land in the Problems panel. Lint-on-save stays quiet: it never pops the terminal up, and only writes there if it's already open. `qb64pe.isShowLintChannelEnabled` now controls whether the Lint command reveals that terminal.
+- Lint: **`-z` (syntax check only) is now the default** (`qb64pe.isLintSyntaxCheckOnly`). It checks the code without building an executable, which is much faster. Turn it off for a full compile that also catches C++/linker errors.
+- Fix: lint errors reach the Problems panel again. The compiler colors its messages with ANSI escape codes, which hid them from the parser. The codes are now stripped before parsing.
+- Fix: removed the "IndexDiagnostics: … hint(s)" line that was logged to the Lint output on every keystroke.
+- Side bar: the Homepage link now goes to https://www.qb64phoenix.com.
+
+## 0.20.46
+
+- Side bar: a **quick-action menu** beside the logo in the QB64PE panel. It has Settings; Run, Debug, Compile Log and Lint; and ASCII Chart, Open QB64PE IDE, Format Source and Align Source. Actions that work on code switch to your QB64PE editor first, so they apply to the file you're working on. The logo is now left-aligned with padding above it.
+- Side bar: **Quick Reference — Tables** now lists its key sections as indented bullets underneath, each linking straight to that table: QB64 Variable Types, OpenGL Types, Relational Operations, Logical Operations, and QB64 Programming References.
+- Side bar: larger section headings, a roomier wiki search box, and a **SEARCH** button.
+
+## 0.20.45
+
+- Side bar: more breathing room around the QB64PE panel's section headings. Each heading (Community, Reference, Articles & Tutorials) has space below it, and every heading after the first has space above it.
+
+## 0.20.44
+
+- Formatter & Align Source: **labels go on their own line.** `retry: PRINT x` becomes `retry:` followed by `PRINT x` on the next line (indented like the rest of the block), matching how labels are now recognized. The symbol index tells a real label from a compound statement, so `cursor_erase: cursor_draw` (a no-argument SUB call) is never split. When the extension can't be sure, it leaves the line alone: an untitled buffer, or a program with an `$INCLUDE` it can't resolve.
+
+## 0.20.43
+
+- Fix: **`Sub1: Sub2` compound statements are no longer mistaken for line labels.** A line like `cursor_erase: cursor_draw` (two no-argument SUB calls) was indexed as a label named `cursor_erase`, so every repeat raised a false "Label … is already defined" error and polluted the outline and Go to Definition. A named label is now recognized only when it stands alone on its line (`handler:`, optionally followed by a comment). Numeric line numbers (`10 PRINT`) are unchanged.
+
+## 0.20.42
+
+- Side bar: **wiki search** in the QB64PE panel. A search box next to the Reference header searches the QB64PE wiki (`Special:Search` with `go=Go`), so an exact keyword such as `_PUTIMAGE` opens its page directly and anything else shows the results list. Press Enter or click **Search**. Results open in the internal browser or your system browser, following the "View Links in Internal Browser" checkbox.
+
 ## 0.20.41
 
 - Syntax highlighting: fixed the **`SUB`/`FUNCTION` grammar rule swallowing the whole line** (reported by a740g). The rule matched `(SUB|FUNCTION)+(.*)$`, so everything after the keyword — the routine name, `ALIAS`, the alias string, and the entire parameter list — collapsed into one flat "function name" color. Most visible inside a `DECLARE LIBRARY` block, where every line is a `SUB`/`FUNCTION` with an alias and long param list. The rule now captures only the keyword + routine name (sigil included); `ALIAS`, strings, `AS`/`BYVAL`/type keywords, and parameters tokenize normally again.

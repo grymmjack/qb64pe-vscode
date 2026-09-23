@@ -98,6 +98,24 @@ export class WorkspaceSymbolIndex implements vscode.Disposable {
     this.changeEmitter.fire([key]);
   }
 
+  /**
+   * For splitting `label: statement` lines: true when `name` is (or might be)
+   * a SUB/FUNCTION, in which case `name:` is a call, not a label. Answers true
+   * for every name when the document isn't indexed or its program has an
+   * unresolved `$INCLUDE`, since the missing file could define it. Await
+   * whenReady() first.
+   */
+  routinePredicate(document: vscode.TextDocument): (name: string) => boolean {
+    if (!this.isIndexable(document)) return () => true; // untitled: its SUBs aren't indexed
+    this.ensureDocument(document);
+    const key = this.keyOf(document);
+    if (this.index.unitOf(key).some((f) => this.index.unresolvedIncludesOf(f).length > 0)) {
+      return () => true;
+    }
+    return (name) =>
+      this.index.lookupBase(name).some((s) => s.type === "SUB" || s.type === "FUNCTION");
+  }
+
   /** ensureDocument for every open document (cheap when nothing changed). */
   ensureAllDocuments(): void {
     for (const document of vscode.workspace.textDocuments) {
