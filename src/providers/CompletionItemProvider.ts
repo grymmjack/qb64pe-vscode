@@ -19,6 +19,8 @@ export class CompletionItemProvider implements vscode.CompletionItemProvider {
   private keywordCompletions: vscode.CompletionItem[] = [];
   private functionCompletions: vscode.CompletionItem[] = [];
   private statementCompletions: vscode.CompletionItem[] = [];
+  /** `$RESIZE`, `$CONSOLE`, ... — offered alone when typing a `$` metacommand. */
+  private metacommandCompletions: vscode.CompletionItem[] = [];
   private readonly workspaceIndex: WorkspaceSymbolIndex;
   /** Items created from index symbols, for lazy documentation. */
   private readonly symbolOf = new WeakMap<vscode.CompletionItem, QB64Symbol>();
@@ -55,6 +57,15 @@ export class CompletionItemProvider implements vscode.CompletionItemProvider {
       // Documentation comes from the help files lazily, in resolveCompletionItem.
 
       // Categorize based on keyword type
+      if (keyword.startsWith("$")) {
+        const meta = new vscode.CompletionItem(
+          keyword,
+          vscode.CompletionItemKind.Keyword
+        );
+        meta.insertText = item.insertText;
+        meta.sortText = keyword;
+        this.metacommandCompletions.push(meta);
+      }
       if (this.isFunctionKeyword(keyword)) {
         item.kind = vscode.CompletionItemKind.Function;
         this.functionCompletions.push(item);
@@ -370,6 +381,31 @@ export class CompletionItemProvider implements vscode.CompletionItemProvider {
             item.sortText = String(i).padStart(3, "0"); // declaration order
             return item;
           });
+      }
+
+      // `$` at the start of a statement (or after `'`/REM, where $INCLUDE and
+      // $DYNAMIC live) is a metacommand. `$` is not part of the word pattern,
+      // so give each item an explicit range that swallows the typed `$...` —
+      // otherwise VS Code filters on the bare word and inserts `$$RESIZE`.
+      const before = document
+        .lineAt(position.line)
+        .text.substring(0, position.character);
+      const meta = /(?:^|:|'|\bREM\s)\s*(\$[A-Za-z]*)$/i.exec(before);
+      if (meta) {
+        const range = new vscode.Range(
+          position.line,
+          position.character - meta[1].length,
+          position.line,
+          position.character
+        );
+        return this.metacommandCompletions.map((m) => {
+          const item = new vscode.CompletionItem(m.label, m.kind);
+          item.insertText = m.insertText;
+          item.sortText = m.sortText;
+          item.filterText = m.label.toString();
+          item.range = range;
+          return item;
+        });
       }
 
       // User symbols first so they win over same-named built-ins when

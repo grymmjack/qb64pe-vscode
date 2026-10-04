@@ -1,5 +1,5 @@
 import * as assert from "assert";
-import { flatten, buildReverseMap, FlattenIO } from "../../core/flatten";
+import { flatten, buildReverseMap, FlattenIO, absolutizeMetaPaths } from "../../core/flatten";
 
 // A tiny in-memory filesystem for the flattener tests.
 function io(files: Record<string, string>): FlattenIO {
@@ -112,5 +112,27 @@ describe("core/flatten", () => {
     assert.strictEqual(rev.get("/p/main.bas")!.get(1), 1);
     assert.strictEqual(rev.get("/p/main.bas")!.get(3), 5);
     assert.strictEqual(rev.get("/p/lib.bm")!.get(1), 3);
+  });
+});
+
+describe("core/flatten absolutizeMetaPaths", () => {
+  const origins = [
+    { file: "/proj/main.bas", line: 1 },
+    { file: "/proj/inc/lib.bi", line: 1 },
+    { file: "/proj/main.bas", line: 2 },
+    { file: "/proj/main.bas", line: 3 },
+  ];
+
+  it("makes $EXEICON / $EMBED paths absolute relative to each line's own file", () => {
+    const text = ["$EXEICON:'icon.ico'", "$EMBED:'data/x.png','pic'", "'$EXEICON:'./a.ico'", "PRINT 1"].join("\n");
+    assert.strictEqual(
+      absolutizeMetaPaths(text, origins),
+      ["$EXEICON:'/proj/icon.ico'", "$EMBED:'/proj/inc/data/x.png','pic'", "'$EXEICON:'/proj/a.ico'", "PRINT 1"].join("\n")
+    );
+  });
+
+  it("leaves absolute paths and other lines alone", () => {
+    const text = ["$EXEICON:'/abs/i.ico'", "$EMBED:'C:/x/y.png','h'", "PRINT \"$EXEICON:'x'\""].join("\r\n");
+    assert.strictEqual(absolutizeMetaPaths(text, origins), text);
   });
 });

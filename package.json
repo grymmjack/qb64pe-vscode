@@ -2,7 +2,7 @@
   "name": "qb64pe",
   "displayName": "QB64PE",
   "description": "QB64PE (Phoenix Edition) language support for Visual Studio Code with intelligent code completion and 500+ keywords.",
-  "version": "0.20.55",
+  "version": "0.20.62",
   "engines": {
     "vscode": "^1.78.1"
   },
@@ -304,6 +304,11 @@
           "default": 9000,
           "description": "Debug|Port: TCP base port the debugger hosts on; the $DEBUG program connects back to it (matches the QB64PE IDE's BaseTCPPort). The next free port at/above this is used."
         },
+        "qb64pe.debug.keepWindowOnTop": {
+          "type": "boolean",
+          "default": false,
+          "description": "Debug|Keep window on top: keep the debugged program's window above other windows (like KDE's 'Keep Above Others'), so it stays visible while you step in VS Code. Linux: KDE Plasma (X11 or Wayland) via a KWin script, other desktops via `wmctrl` if installed. Windows: via PowerShell. Not supported on macOS."
+        },
         "qb64pe.debug.autoAddDebug": {
           "type": "boolean",
           "default": true,
@@ -318,6 +323,19 @@
           "type": "boolean",
           "default": true,
           "description": "Debug|Cache build: skip recompiling when the flattened source is unchanged since the last debug run (reuses the executable and variable manifest). Big speed-up for large multi-file projects."
+        },
+        "qb64pe.debug.tempFolder": {
+          "type": "string",
+          "enum": [
+            "system",
+            "program"
+          ],
+          "enumDescriptions": [
+            "A per-program folder under the system temp dir (e.g. /tmp/qb64pe-vscode/PULSE-1a2b3c4d5e). Keeps the project folder clean; the build cache still works between sessions and the OS clears it eventually.",
+            "Next to the program (.NAME.debug.BAS + .manifest in its folder)."
+          ],
+          "default": "system",
+          "description": "Debug|Temp folder: where the debugger keeps the flattened .NAME.debug.BAS it compiles and its .manifest (the build cache that lets an unchanged program relaunch without recompiling). The executable always goes beside the program."
         },
         "qb64pe.debug.trace": {
           "type": "boolean",

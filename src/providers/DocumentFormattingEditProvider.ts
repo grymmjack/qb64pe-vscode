@@ -5,6 +5,7 @@ import { TokenInfo } from "../TokenInfo";
 import { reindentLines } from "../core/indent";
 import { hasLineContinuation, scanLine } from "../core/lexer";
 import { splitInlineLabel } from "../core/labels";
+import { spaceKeywordParens, tightenCoordinateDashes } from "../core/coordinates";
 import { WorkspaceSymbolIndex } from "./WorkspaceSymbolIndex";
 
 // Code Formatter
@@ -261,7 +262,8 @@ export class DocumentFormattingEditProvider implements vscode.DocumentFormatting
 						newLine = this.cleanUpCode(words.join(" "));
 					}
 
-					newLine = newLine.trim();
+					// `(x1, y1)-(x2, y2)` is coordinate syntax, not subtraction.
+					newLine = tightenCoordinateDashes(spaceKeywordParens(newLine.trim()));
 				}
 
 				contentLines.push(newLine);

@@ -2,6 +2,34 @@
 
 All notable changes to the "QB64 PE" extension will be documented in this file.
 
+## 0.20.62
+
+- Debugger: **temp files no longer clutter the project folder**. The flattened `.NAME.debug.BAS` and its `.manifest` now go in a per-program folder under the system temp dir (`/tmp/qb64pe-vscode/NAME-<id>/`). The build cache still works between sessions, and the OS clears the folder eventually. The executable is still built beside the program, so its working directory and relative paths don't change. `$EXEICON` and `$EMBED` paths are made absolute so they still resolve. Set `qb64pe.debug.tempFolder` to `program` for the old behavior.
+
+## 0.20.60
+
+- Debugger: **keep the program window on top** with the new `qb64pe.debug.keepWindowOnTop` setting (off by default). The debugged program's window stays above other windows (like KDE's *Keep Above Others*), so you can step in VS Code and still watch the output.
+  - **Linux, KDE Plasma** (X11 or Wayland): a small KWin script picks the window by process ID; it's unloaded when the session ends.
+  - **Other Linux desktops**: uses `wmctrl` when it's installed.
+  - **macOS and Windows**: a small helper is compiled into the debug build (an appended `DECLARE LIBRARY`; line numbers don't change and stepping never enters it). It raises the program's own window to the floating level (macOS) or makes it topmost (Windows). Your source is untouched; changing the setting triggers one rebuild.
+
+## 0.20.59
+
+- Debugger: **Watch evaluates expressions**. Watches like `(t * f) - INT(t * f)` or `x + 1 > limit` showed `<not in scope>`. Variables are now read live and combined with QB64 rules: operator precedence (`-2 ^ 2` is -4), `\` and `MOD` rounding their operands, comparisons and `AND`/`OR`/`NOT` giving -1/0 bitwise. Array elements may use expressions as indexes (`grid(i + 1)`), TYPE fields (`p.x * 2`) and the program's own CONSTs are supported. Pure built-ins are computed: `INT`, `FIX`, `ABS`, `SGN`, `SQR`, trig, `CINT`/`CLNG`, `_ROUND`, `_CEIL`, `_PI`, `_ATAN2`, `_HYPOT`, `_MIN`/`_MAX`, `_SHL`/`_SHR`, `_RGB32`/`_RGBA32` and `_RED32`..`_ALPHA32`, `LEN`, `ASC`, `VAL`, `INSTR`, `CHR$`, `STR$`, `LEFT$`/`RIGHT$`/`MID$`, `UCASE$`/`LCASE$`, `LTRIM$`/`RTRIM$`/`_TRIM$`, `SPACE$`, `STRING$`, `HEX$`/`OCT$`/`_BIN$`. Your own FUNCTIONs can't be called while paused, and a watch using one says so.
+- Formatter: **space before the parenthesis after statements**. `LINE (0, 0)-(1, 1)`, `PSET (x, y)`, `IF (a) THEN` and `x AND (y)` no longer collapse to `LINE(` / `IF(` / `AND(`. Function calls, array indexes and `STEP(` stay tight.
+
+## 0.20.58
+
+- Formatter: **coordinate pairs stay tight**. `LINE (0, y)-(w, y)` was reformatted to `LINE (0, y) - (w, y)` as if the dash were subtraction. In `LINE`, `VIEW`, `WINDOW`, `GET`, `PUT`, `_PUTIMAGE` and `_MAPTRIANGLE` the dash between pairs (and before `STEP`) is now written `)-(`. Real subtraction such as `x = (a) - (b)` keeps its spaces.
+
+## 0.20.57
+
+- Debugger: **hover now shows the live variable value**. A `CONST` with the same name in some other workspace file (e.g. `CONST F = 698.46`) could shadow the variable `f` in the hover, though Variables showed the right value. Hover and Watch now read variables first and only resolve constants that belong to the program being debugged.
+
+## 0.20.56
+
+- Completion: **metacommands complete after `$`**. Type `$` at the start of a statement (or after `'`/`REM`, for `'$INCLUDE`) and press Ctrl+Space. The list now shows only the metacommands (`$RESIZE`, `$CONSOLE`, `$INCLUDE`, ...) and filters as you type `$RE...`. Picking one replaces the typed `$` instead of inserting `$$RESIZE`.
+
 ## 0.20.55
 
 - Side bar: section headings (Community, Reference, Keywords, Articles & Tutorials) sit on a full-width dark band (black at 50%), so each pane's header stands out from its scrolling list. The heading text is dimmed by its color rather than by fading the whole header, so the Reference search box now shows at full brightness.

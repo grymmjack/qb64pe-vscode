@@ -5,6 +5,7 @@ import * as cp from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
+import * as crypto from "crypto";
 import {
   LoggingDebugSession,
   InitializedEvent,
@@ -26,6 +27,7 @@ import {
 } from "../core/index";
 import {
   flatten,
+  absolutizeMetaPaths,
   buildReverseMap,
   LineOrigin,
 } from "../core/flatten";
@@ -50,7 +52,20 @@ import {
   hitConditionMet,
   parseCondition,
 } from "../core/vwatchConditions";
+import {
+  ExprEnv,
+  ExprError,
+  Value,
+  evaluateExpression,
+  formatResult,
+} from "../core/vwatchExpr";
 import { compilerSettingArgs, executableExtension } from "./compilerArgs";
+import {
+  KeepAboveHandle,
+  keepAboveDeclareLines,
+  keepAboveIsCompiledIn,
+  keepWindowAbove,
+} from "./keepAbove";
 
 const THREAD_ID = 1;
 const THREAD_NAME = "QB64PE program";
@@ -191,6 +206,8 @@ export class QB64DebugSession extends LoggingDebugSession {
   private server?: net.Server;
   private socket?: net.Socket;
   private child?: cp.ChildProcess;
+  /** Keeps the program window on top (qb64pe.debug.keepWindowOnTop). */
+  private keepAbove?: KeepAboveHandle;
   private readonly reader = new FrameReader();
 
   private args!: QB64LaunchArguments;
@@ -538,6 +555,8 @@ export class QB64DebugSession extends LoggingDebugSession {
     number,
     { batch: VarBatch; name: string; varType: string; ref?: number }
   >();
+  /** tempIndex -> a promise-based read (expression evaluation). */
+  private readonly readPending = new Map<number, (bytes: Buffer | null) => void>();
   private readonly evalPending = new Map<
     number,
     { response: DebugProtocol.EvaluateResponse; varType: string; name?: string }
@@ -885,6 +904,12 @@ export class QB64DebugSession extends LoggingDebugSession {
   }
 
   private onAddressRead(read: { tempIndex: number; bytes: Buffer }): void {
+    const reader = this.readPending.get(read.tempIndex);
+    if (reader) {
+      this.readPending.delete(read.tempIndex);
+      reader(read.bytes);
+      return;
+    }
     const cond = this.condPending.get(read.tempIndex);
     if (cond) {
       this.condPending.delete(read.tempIndex);
@@ -1068,46 +1093,135 @@ export class QB64DebugSession extends LoggingDebugSession {
     const expr = (args.expression || "").trim();
     const hover = args.context === "hover";
 
-    // Array element:  name(i)  or  name(i, j)
-    const arr = /^([A-Za-z_][A-Za-z0-9_]*)[%&!#$~]?\s*\(([^)]*)\)$/.exec(expr);
-    if (arr) {
+    // Fast paths for the shapes the Variables view also shows, so they keep
+    // their exact rendering (colour hints, `<use name(index)>` guidance).
+    // Array element with literal indexes:  name(i)  or  name(i, j)
+    const arr = /^([A-Za-z_][A-Za-z0-9_]*)[%&!#$~]?\s*\(\s*(-?\d+(?:\s*,\s*-?\d+)*)\s*\)$/.exec(expr);
+    if (arr && this.findVar(arr[1].toUpperCase())?.v.isArray) {
       this.evaluateArray(response, arr[1], arr[2], hover);
       return;
     }
 
-    // Member path:  name.field.field
-    if (expr.includes(".")) {
+    // Member path:  name.field.field  (on a TYPE variable)
+    const member = /^([A-Za-z_][A-Za-z0-9_]*)(\.[A-Za-z_][A-Za-z0-9_]*)+$/.exec(expr);
+    if (member && this.findVar(member[1].toUpperCase())?.v.isUDT) {
       this.evaluateMember(response, expr, hover);
       return;
     }
 
-    const upper = expr.replace(/[%&!#$~]+$/, "").toUpperCase();
-    // Constants resolve statically.
-    const constHit = this.index
-      .lookupBase(normalizeBase(expr))
-      .find((s) => s.type === "CONST");
-    if (constHit?.value !== undefined) {
-      this.reply(response, constHit.value);
-      return;
+    // Plain variable name.
+    if (/^[A-Za-z_][A-Za-z0-9_.]*[%&!#$~`]*$/.test(expr)) {
+      const found = this.findVar(expr.replace(/[%&!#$~`]+$/, "").toUpperCase());
+      if (found) {
+        if (found.v.isArray || found.v.isUDT) {
+          this.unresolved(response, hover, found.v.isArray ? "<use name(index)>" : "<use name.field>");
+          return;
+        }
+        this.evalGetVar(response, found.isLocal, {
+          localIndex: found.v.index,
+          varType: found.v.varType,
+          varSize: found.v.size,
+          name: found.v.name,
+        });
+        return;
+      }
     }
 
-    const found = this.findVar(upper);
-    if (found && !found.v.isArray && !found.v.isUDT) {
-      this.evalGetVar(response, found.isLocal, {
-        localIndex: found.v.index,
-        varType: found.v.varType,
-        varSize: found.v.size,
-        name: found.v.name,
-      });
+    // Anything else is an expression: `(t * f) - INT(t * f)`, `x + 1 > y`, ...
+    // Constants also land here, resolved only from the program being debugged:
+    // a workspace-wide lookup let `CONST F = 698.46` in an unrelated file
+    // shadow variable `f`.
+    if (!this.socket) {
+      this.reply(response, "<no session>");
       return;
     }
-    // Not a debuggable value. On hover, fail so VS Code shows the normal
-    // language hover (keyword help, symbol declarations) instead of our text.
-    this.unresolved(
-      response,
-      hover,
-      found?.v.isArray ? "<use name(index)>" : found?.v.isUDT ? "<use name.field>" : "<not in scope>"
+    evaluateExpression(expr, this.exprEnv()).then(
+      (value) => this.reply(response, formatResult(value)),
+      (err) =>
+        // Hover over a word that isn't a variable (a keyword, a SUB name)
+        // fails quietly so the language hover shows instead.
+        this.unresolved(
+          response,
+          hover,
+          err instanceof ExprError ? `<${err.message}>` : `<error: ${err}>`
+        )
     );
+  }
+
+  /** The variable reader the expression evaluator runs against. */
+  private exprEnv(depth = 0): ExprEnv {
+    const strip = (n: string) => n.replace(/[%&!#$~`]+$/, "").toUpperCase();
+    const decode = (varType: string, bytes: Buffer | null, what: string): Value => {
+      if (!bytes) throw new ExprError(`no reply reading ${what}`);
+      const d = decodeValue(varType, bytes);
+      if (!d) throw new ExprError(`cannot read ${what}`);
+      return varType.toUpperCase().startsWith("STRING") ? d.text : Number(d.text);
+    };
+    return {
+      isArray: (name) => !!this.findVar(strip(name))?.v.isArray,
+      element: async (name, indexes) => {
+        const found = this.findVar(strip(name))!;
+        if (found.v.isUDT) throw new ExprError(`${name}() is an array of TYPE; watch name(i).field`);
+        const bytes = await this.readVar(found.isLocal, {
+          localIndex: found.v.index,
+          varType: found.v.varType,
+          varSize: found.v.size,
+          isArray: true,
+          arrayIndexes: indexes,
+        });
+        return decode(found.v.varType, bytes, `${name}(${indexes.join(", ")})`);
+      },
+      value: async (name) => {
+        const found = this.findVar(strip(name));
+        if (found) {
+          if (found.v.isArray) throw new ExprError(`${name} is an array; use ${name}(index)`);
+          if (found.v.isUDT) throw new ExprError(`${name} is a TYPE; use ${name}.field`);
+          const bytes = await this.readVar(found.isLocal, {
+            localIndex: found.v.index,
+            varType: found.v.varType,
+            varSize: found.v.size,
+          });
+          return decode(found.v.varType, bytes, name);
+        }
+        if (name.includes(".")) {
+          const leaf = this.resolveMember(name);
+          if (typeof leaf === "string") throw new ExprError(leaf.replace(/^<|>$/g, ""));
+          const bytes = await this.readVar(leaf.isLocal, leaf.req);
+          return decode(leaf.req.varType, bytes, name);
+        }
+        const base = normalizeBase(name);
+        const constant = this.programSyms().find(
+          (sym) => sym.type === "CONST" && normalizeBase(sym.name) === base
+        );
+        if (constant?.value !== undefined && depth < 8) {
+          return evaluateExpression(constant.value, this.exprEnv(depth + 1));
+        }
+        throw new ExprError(`${name} not in scope`);
+      },
+    };
+  }
+
+  /** Issue a get-var and resolve with the raw bytes (null on timeout). */
+  private readVar(
+    isLocal: boolean,
+    req: {
+      localIndex: number;
+      varType: string;
+      varSize: number;
+      isArray?: boolean;
+      arrayIndexes?: number[];
+      element?: number;
+      elementOffset?: number;
+    }
+  ): Promise<Buffer | null> {
+    return new Promise((resolve) => {
+      const tempIndex = ++this.varSeq;
+      this.readPending.set(tempIndex, resolve);
+      this.issueGetVar({ isLocal, scope: isLocal ? this.currentSub : "", tempIndex, ...req });
+      setTimeout(() => {
+        if (this.readPending.delete(tempIndex)) resolve(null);
+      }, 700);
+    });
   }
 
   /** Reply with a message, or (on hover) an error so the language hover wins. */
@@ -1153,12 +1267,37 @@ export class QB64DebugSession extends LoggingDebugSession {
     expr: string,
     hover: boolean
   ): void {
-    const parts = expr.split(".");
-    const base = this.findVar(parts[0].replace(/[%&!#$~]+$/, "").toUpperCase());
-    if (!base || !base.v.isUDT) {
-      this.unresolved(response, hover, "<not a TYPE variable>");
+    const leaf = this.resolveMember(expr);
+    if (typeof leaf === "string") {
+      // `{TYPE}` / `<string>` are answers, not failures.
+      if (/^[{]|^<string>$/.test(leaf)) this.reply(response, leaf);
+      else this.unresolved(response, hover, leaf);
       return;
     }
+    this.evalGetVar(response, leaf.isLocal, { ...leaf.req, name: leaf.name });
+  }
+
+  /**
+   * Byte location of `name.field.field` inside a TYPE variable, or a message
+   * (`<no such field>`, `{TYPE}` for a nested TYPE, `<string>` for a
+   * variable-length string member, whose text isn't stored inline).
+   */
+  private resolveMember(expr: string):
+    | string
+    | {
+        isLocal: boolean;
+        name: string;
+        req: {
+          localIndex: number;
+          varType: string;
+          varSize: number;
+          element: number;
+          elementOffset: number;
+        };
+      } {
+    const parts = expr.split(".");
+    const base = this.findVar(parts[0].replace(/[%&!#$~]+$/, "").toUpperCase());
+    if (!base || !base.v.isUDT) return "<not a TYPE variable>";
     let typeName = this.udtTypeOf(base.v.name);
     let offset = 0;
     let leaf: { sendType: string; size: number } | null = null;
@@ -1167,38 +1306,28 @@ export class QB64DebugSession extends LoggingDebugSession {
       const field = layout?.fields.find(
         (f) => f.name.toUpperCase() === parts[i].toUpperCase()
       );
-      if (!field || field.size === null || Number.isNaN(offset)) {
-        this.unresolved(response, hover, "<no such field>");
-        return;
-      }
+      if (!field || field.size === null || Number.isNaN(offset)) return "<no such field>";
       offset += field.offset;
       if (i === parts.length - 1) {
-        if (field.isUDT) {
-          this.reply(response, `{${field.udtType}}`);
-          return;
-        }
-        if (field.isVarString) {
-          // Variable-length string member: text isn't inline (8-byte descriptor).
-          this.reply(response, "<string>");
-          return;
-        }
+        if (field.isUDT) return `{${field.udtType}}`;
+        if (field.isVarString) return "<string>";
         leaf = { sendType: field.sendType, size: field.size };
       } else {
         typeName = field.udtType;
       }
     }
-    if (!leaf) {
-      this.unresolved(response, hover, "<no such field>");
-      return;
-    }
-    this.evalGetVar(response, base.isLocal, {
-      localIndex: base.v.index,
-      varType: leaf.sendType,
-      varSize: leaf.size,
-      element: 1,
-      elementOffset: offset,
+    if (!leaf) return "<no such field>";
+    return {
+      isLocal: base.isLocal,
       name: parts[parts.length - 1],
-    });
+      req: {
+        localIndex: base.v.index,
+        varType: leaf.sendType,
+        varSize: leaf.size,
+        element: 1,
+        elementOffset: offset,
+      },
+    };
   }
 
   /** Find a variable by (upper-case) name in locals first, then globals. */
@@ -1636,17 +1765,58 @@ export class QB64DebugSession extends LoggingDebugSession {
         "Program has no $DEBUG metacommand and qb64pe.debug.autoAddDebug is off."
       );
     }
-    this.flatText = hasDebug ? result.text : result.text + os.EOL + "$DEBUG" + os.EOL;
+    // The source may compile from the temp folder, so file paths the compiler
+    // resolves against the source's folder must be made absolute (DECLARE
+    // LIBRARY is handled by flatten).
+    let text = absolutizeMetaPaths(result.text, result.origins);
+    // macOS / Windows keep the window on top from inside the program: append
+    // the helper's DECLARE LIBRARY (after everything, so line numbers hold).
+    if (
+      keepAboveIsCompiledIn() &&
+      vscode.workspace.getConfiguration("qb64pe").get<boolean>("debug.keepWindowOnTop", false)
+    ) {
+      try {
+        text += os.EOL + keepAboveDeclareLines().join(os.EOL) + os.EOL;
+      } catch (err) {
+        this.output(`keep on top: could not write helper header: ${err}\n`, "stderr");
+      }
+    }
+    this.flatText = hasDebug ? text : text + os.EOL + "$DEBUG" + os.EOL;
 
-    const dir = path.dirname(this.program);
     const base = path.basename(this.program, path.extname(this.program));
     // The temp file is written later (only on a cache miss).
-    this.compiledProgram = path.join(dir, `.${base}.debug${path.extname(this.program)}`);
+    this.compiledProgram = path.join(
+      this.tempDirFor(),
+      `.${base}.debug${path.extname(this.program)}`
+    );
     this.tempProgram = this.compiledProgram;
     if (this.isTracing()) {
       this.output(
         `Flattened ${this.flatByFile.size} file(s) into ${this.origins.length} lines.\n`
       );
+    }
+  }
+
+  /**
+   * Where the flattened `.NAME.debug.BAS` + `.manifest` (the build cache) live.
+   * "system" (default): a stable per-program folder under the OS temp dir, so
+   * the cache survives between sessions without cluttering the project and the
+   * OS clears it eventually. "program": next to the program (the old behavior).
+   */
+  private tempDirFor(): string {
+    const where = vscode.workspace
+      .getConfiguration("qb64pe")
+      .get<string>("debug.tempFolder", "system");
+    if (where === "program") return path.dirname(this.program);
+    const id = crypto.createHash("sha1").update(normalizePath(this.program)).digest("hex").slice(0, 10);
+    const base = path.basename(this.program, path.extname(this.program)).replace(/[^\w.-]+/g, "_");
+    const dir = path.join(os.tmpdir(), "qb64pe-vscode", `${base}-${id}`);
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      return dir;
+    } catch (err) {
+      this.output(`Could not create ${dir} (${err}); using the program's folder.\n`, "stderr");
+      return path.dirname(this.program);
     }
   }
 
@@ -1702,9 +1872,14 @@ export class QB64DebugSession extends LoggingDebugSession {
     const clean = spec.replace(/^\.[\\/]/, "").replace(/\\/g, "/");
     if (path.isAbsolute(clean)) return null;
     const dir = path.dirname(fromFile);
-    const hasHeader =
-      fs.existsSync(path.join(dir, clean + ".h")) ||
-      fs.existsSync(path.join(dir, clean));
+    // A header, the library itself, or QB64's lib<name> form: any of these
+    // means the spec is local and must be absolutized to compile from temp.
+    const stem = path.join(dir, clean);
+    const libStem = path.join(path.dirname(stem), "lib" + path.basename(stem));
+    const exts = ["", ".h", ".hpp", ".a", ".o", ".so", ".dll", ".dylib"];
+    const hasHeader = exts.some(
+      (ext) => fs.existsSync(stem + ext) || (ext !== "" && fs.existsSync(libStem + ext))
+    );
     return hasHeader ? path.join(dir, clean).replace(/\\/g, "/") : null;
   }
 
@@ -1718,8 +1893,10 @@ export class QB64DebugSession extends LoggingDebugSession {
     return this.origins[flatLine - 1];
   }
 
-  private exePathFor(sourceFile: string): string {
-    const dir = path.dirname(sourceFile);
+  private exePathFor(_sourceFile: string): string {
+    // Always beside the program (even when the source compiled is in temp), so
+    // its working directory and relative runtime paths are the program's own.
+    const dir = path.dirname(this.program);
     const base = path.basename(this.program, path.extname(this.program));
     // Configurable per-OS (qb64pe.run.*ExecutableExtension); defaults .exe on
     // Windows, .run on Linux/macOS. findProducedExe() still probes in case the
@@ -1791,7 +1968,7 @@ export class QB64DebugSession extends LoggingDebugSession {
         `Compiling ${path.basename(sourceFile)} with $DEBUG (${procs} compiler process${procs === 1 ? "" : "es"})...\n`,
         { icon: "🔨", color: "cyan" }
       );
-      const proc = cp.spawn(compilerPath, args, { cwd: path.dirname(sourceFile) });
+      const proc = cp.spawn(compilerPath, args, { cwd: path.dirname(this.program) });
       proc.stdout?.on("data", (d) => this.output(d.toString()));
       proc.stderr?.on("data", (d) => this.output(d.toString(), "stderr"));
       proc.on("error", (err) => {
@@ -1817,6 +1994,12 @@ export class QB64DebugSession extends LoggingDebugSession {
       env: { ...process.env, QB64DEBUGPORT: String(port) },
     });
     this.child = child;
+    if (
+      child.pid &&
+      vscode.workspace.getConfiguration("qb64pe").get<boolean>("debug.keepWindowOnTop", false)
+    ) {
+      this.keepAbove = keepWindowAbove(child.pid, (msg) => this.output(`${msg}\n`, "stderr"));
+    }
     child.stdout?.on("data", (d) => this.output(d.toString()));
     child.stderr?.on("data", (d) => this.output(d.toString(), "stderr"));
     child.on("error", (err) => {
@@ -1851,6 +2034,7 @@ export class QB64DebugSession extends LoggingDebugSession {
     } catch {
       /* ignore */
     }
+    this.keepAbove?.dispose();
     try {
       this.child?.kill();
     } catch {
@@ -1862,7 +2046,8 @@ export class QB64DebugSession extends LoggingDebugSession {
       /* ignore */
     }
     // The flattened temp + its .manifest are the build cache; they are left in
-    // place so an unchanged program relaunches without recompiling.
+    // place (system temp or the program's folder, per qb64pe.debug.tempFolder)
+    // so an unchanged program relaunches without recompiling.
     this.sendEvent(new TerminatedEvent());
   }
 
@@ -2054,3 +2239,4 @@ export class QB64DebugSession extends LoggingDebugSession {
     this.terminate("fail: " + message);
   }
 }
+

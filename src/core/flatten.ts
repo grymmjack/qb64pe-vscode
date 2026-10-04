@@ -1,3 +1,4 @@
+import * as path from "path";
 /**
  * Flatten a QB64PE program's `$INCLUDE` graph into a single source, with a line
  * map back to the original files.
@@ -131,4 +132,24 @@ export function buildReverseMap(
     if (!byLine.has(origin.line)) byLine.set(origin.line, flatLine);
   });
   return map;
+}
+
+/**
+ * Make `$EXEICON:'x'` and `$EMBED:'x','h'` paths absolute, relative to the file
+ * each flattened line came from, so the flattened copy compiles from anywhere.
+ */
+export function absolutizeMetaPaths(text: string, origins: LineOrigin[]): string {
+  const lines = text.split(/\r?\n/);
+  const eol = text.includes("\r\n") ? "\r\n" : "\n";
+  const re = /^(\s*'?\s*\$(?:EXEICON|EMBED)\s*:\s*')([^']+)(')/i;
+  let changed = false;
+  for (let i = 0; i < lines.length; i++) {
+    const m = re.exec(lines[i]);
+    const origin = origins[i];
+    if (!m || !origin || path.isAbsolute(m[2]) || /^[A-Za-z]:[\\/]/.test(m[2])) continue;
+    const abs = path.resolve(path.dirname(origin.file), m[2]).replace(/\\/g, "/");
+    lines[i] = m[1] + abs + m[3] + lines[i].slice(m[0].length);
+    changed = true;
+  }
+  return changed ? lines.join(eol) : text;
 }
