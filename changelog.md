@@ -2,6 +2,10 @@
 
 All notable changes to the "QB64 PE" extension will be documented in this file.
 
+## 0.20.63
+
+- Formatter: **comments are left alone**. With `qb64pe.isFormatEnabled` on, *Format Document* also changed text inside comments. In `x=1 ' set x=1 and print it` it uppercased `print`, spaced out `=` and `:`, and a trailing comment after `IF x` ended up with ` then` appended to it. Only the code before a `'` or `REM` is formatted now; the comment is kept exactly as you wrote it, including its spacing. Whole-line comments only get re-indented. Lines like `remaining = 5` are no longer mistaken for `REM` comments and skipped.
+
 ## 0.20.62
 
 - Debugger: **temp files no longer clutter the project folder**. The flattened `.NAME.debug.BAS` and its `.manifest` now go in a per-program folder under the system temp dir (`/tmp/qb64pe-vscode/NAME-<id>/`). The build cache still works between sessions, and the OS clears the folder eventually. The executable is still built beside the program, so its working directory and relative paths don't change. `$EXEICON` and `$EMBED` paths are made absolute so they still resolve. Set `qb64pe.debug.tempFolder` to `program` for the old behavior.
