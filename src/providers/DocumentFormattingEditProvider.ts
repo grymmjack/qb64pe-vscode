@@ -61,7 +61,7 @@ export class DocumentFormattingEditProvider implements vscode.DocumentFormatting
 	 * @returns 
 	 */
 	private shouldProcessLine(lowerLine: string) {
-		return !(lowerLine.startsWith("rem") || lowerLine.startsWith("'"));
+		return lowerLine.length > 0 && scanLine(lowerLine).commentStart !== 0;
 	}
 
 	/**
@@ -217,7 +217,18 @@ export class DocumentFormattingEditProvider implements vscode.DocumentFormatting
 					contentLines.push(originalLine.text.trim());
 					continue;
 				}
-				let newLine = originalLine.text.trim().replaceAll(" && ", " and ").replaceAll(" || ", "  or ").replaceAll(" != ", " <> ").replaceAll(" == ", " = ");
+				// Comments are never formatted: split off any trailing comment (or
+				// whole-line ' / REM comment) with the lexer, format only the code
+				// before it, then put the comment back verbatim.
+				const trimmed = originalLine.text.trim();
+				const commentStart = scanLine(trimmed).commentStart;
+				if (commentStart === 0) {
+					contentLines.push(trimmed);
+					continue;
+				}
+				const codePart = commentStart > 0 ? trimmed.substring(0, commentStart).trimEnd() : trimmed;
+				const commentPart = commentStart > 0 ? trimmed.substring(codePart.length) : "";
+				let newLine = codePart.replaceAll(" && ", " and ").replaceAll(" || ", "  or ").replaceAll(" != ", " <> ").replaceAll(" == ", " = ");
 				let lowerLine = newLine.toLowerCase();
 				const isSingleLineIf: boolean = this.isSingleLineIf(newLine.toLowerCase());
 
@@ -266,7 +277,7 @@ export class DocumentFormattingEditProvider implements vscode.DocumentFormatting
 					newLine = tightenCoordinateDashes(spaceKeywordParens(newLine.trim()));
 				}
 
-				contentLines.push(newLine);
+				contentLines.push(newLine + commentPart);
 			}
 
 			// Labels stand on their own line: `retry: PRINT x` -> `retry:` + `PRINT x`.

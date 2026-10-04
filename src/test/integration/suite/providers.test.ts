@@ -233,6 +233,39 @@ describe("QB64PE providers (extension host)", function () {
     }
   });
 
+  it("format leaves comments untouched (whole-line, REM and trailing)", async () => {
+    const file = path.join(os.tmpdir(), `qb64pe-int-comments-${process.pid}.bas`);
+    const src = [
+      "' if x=1 then print a-b, c:d",
+      "REM print x+y  ;  end",
+      "x=1+2 ' set x=1+2 and print it: done",
+      "if x=3 then print x '   keep   SPACING, \"quotes\" -1",
+      "remaining=5",
+      "",
+    ];
+    fs.writeFileSync(file, src.join("\n"));
+    const config = vscode.workspace.getConfiguration("qb64pe");
+    await config.update("isFormatEnabled", true, vscode.ConfigurationTarget.Global);
+    try {
+      const doc = await vscode.workspace.openTextDocument(file);
+      const edits = await vscode.commands.executeCommand<vscode.TextEdit[]>(
+        "vscode.executeFormatDocumentProvider", doc.uri, { tabSize: 4, insertSpaces: true });
+      const out = new vscode.WorkspaceEdit();
+      out.set(doc.uri, edits ?? []);
+      await vscode.workspace.applyEdit(out);
+      const lines = doc.getText().split("\n");
+      assert.strictEqual(lines[0], src[0]);
+      assert.strictEqual(lines[1], src[1]);
+      assert.ok(lines[2].endsWith(" ' set x=1+2 and print it: done"), lines[2]);
+      assert.ok(lines[3].endsWith(" '   keep   SPACING, \"quotes\" -1"), lines[3]);
+      assert.ok(/^\S+ = 1 \+ 2 '/.test(lines[2]), lines[2]);
+      assert.ok(!/'/.test(lines[4]), lines[4]);
+    } finally {
+      await config.update("isFormatEnabled", undefined, vscode.ConfigurationTarget.Global);
+      try { fs.unlinkSync(file); } catch { /* ignore */ }
+    }
+  });
+
   it("lint (-z) streams to a terminal and reports compiler errors as Problems", async function () {
     const compiler = process.env.QB64PE_COMPILER ?? path.resolve(__dirname, "../../../../../qb64pe/qb64pe");
     if (!fs.existsSync(compiler)) return this.skip();
