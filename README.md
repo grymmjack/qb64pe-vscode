@@ -16,6 +16,7 @@ formatting, and a real source-level debugger.
 - [Install & configure](#install--configure)
 - [Features at a glance](#features-at-a-glance)
 - [Language intelligence](#language-intelligence)
+  - [Other editors: qb64lsp (vim, Neovim, …)](#other-editors-qb64lsp-vim-neovim-)
 - [Hover help & F1 help](#hover-help--f1-help)
   - [Preparing offline help](#preparing-offline-help)
 - [Live linting](#live-linting)
@@ -65,6 +66,56 @@ understands scope (locals, parameters, `SHARED`, module level, TYPE members):
 - **Rename Symbol** (`F2`) — across the whole program, keeping type sigils correct.
 - **Completion** — 500+ keywords plus your in-scope symbols (ranked first), and member completion (`variable.` lists the TYPE's fields).
 - **Signature help**, **document highlights** (reads vs writes), **Outline/breadcrumbs**, **Go to Symbol in Workspace** (`Ctrl+T`), **Call Hierarchy**, **block folding**, and **semantic highlighting** of your own names.
+
+### Other editors: qb64lsp (vim, Neovim, …)
+
+The same engine also ships as a standalone **Language Server Protocol** server,
+`qb64lsp`, so any LSP-capable editor gets the extension's code intelligence:
+go to definition, references, document highlights, hover (your symbols plus the
+bundled keyword help, as plain Markdown), completion (in-scope symbols, TYPE
+members after `.`, keywords), rename (with QB64 name validation), document and
+workspace symbols, folding, and optional diagnostics. It follows `$INCLUDE`
+chains and scope exactly like the extension. It needs Node.js 18+ and is not part
+of the `.vsix`.
+
+Install it from a clone of this repo:
+
+```sh
+npm ci
+npm run install:qb64lsp   # → ~/.local/bin/qb64lsp, keyword help in ~/.local/share/qb64lsp/help
+```
+
+Run it as `qb64lsp --stdio`. On startup it indexes every `.bas/.bi/.bm/.inc` under
+the workspace root the client sends. Options go in `initializationOptions`:
+`diagnostics` (default `false`; `true` publishes the same lint as
+[Live linting](#live-linting)), `helpDir` (another folder of help `*.md`), and
+`maxHoverLines` (default 60).
+
+**vim + [coc.nvim](https://github.com/neoclide/coc.nvim)** — in `~/.vim/coc-settings.json`:
+
+```json
+{
+  "languageserver": {
+    "qb64": {
+      "command": "qb64lsp",
+      "args": ["--stdio"],
+      "filetypes": ["qb64"],
+      "rootPatterns": [".git", "*.code-workspace"],
+      "initializationOptions": { "diagnostics": true }
+    }
+  }
+}
+```
+
+Vim only recognises lowercase `.bas` (as `basic`), so also map the extensions to
+vim's bundled `qb64` filetype in your `.vimrc`:
+
+```vim
+autocmd BufNewFile,BufRead *.bas,*.BAS,*.bi,*.BI,*.bm,*.BM set filetype=qb64
+```
+
+Any other LSP client works the same way: start `qb64lsp --stdio` for the `qb64`
+filetype with `.git` as the root marker.
 
 ---
 

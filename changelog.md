@@ -2,6 +2,10 @@
 
 All notable changes to the "QB64 PE" extension will be documented in this file.
 
+## Unreleased
+
+- New **`qb64lsp`**: the extension's code intelligence as a standalone Language Server Protocol server for vim (coc.nvim), Neovim and other editors. It provides definition, references, highlights, hover with keyword help, completion, rename, document and workspace symbols, folding, and optional diagnostics, using the same engine as the extension. Install it with `npm run install:qb64lsp` (see *Other editors* in the README). It isn't part of the `.vsix`, so the extension itself is unchanged.
+
 ## 0.20.63
 
 - Formatter: **comments are left alone**. With `qb64pe.isFormatEnabled` on, *Format Document* also changed text inside comments. In `x=1 ' set x=1 and print it` it uppercased `print`, spaced out `=` and `:`, and a trailing comment after `IF x` ended up with ` then` appended to it. Only the code before a `'` or `REM` is formatted now; the comment is kept exactly as you wrote it, including its spacing. Whole-line comments only get re-indented. Lines like `remaining = 5` are no longer mistaken for `REM` comments and skipped.

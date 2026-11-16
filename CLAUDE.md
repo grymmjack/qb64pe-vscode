@@ -23,7 +23,13 @@ npm run test:integration # Extension Development Host smoke test of every provid
                          #   prefix with `xvfb-run -a` to keep it off your screen; the runner clears ELECTRON_RUN_AS_NODE)
 npm run package          # Produce the installable .vsix with @vscode/vsce (contents governed by .vscodeignore)
 npm run qb64ref -- <root> def|refs|sym|at <args>   # headless code intelligence over a QB64 codebase (uses src/core)
+npm run qb64lsp          # scripts/qb64lsp.js: stdio LSP server over src/core for vim/Neovim/etc.
+npm run install:qb64lsp  # bundle → ~/.local/bin/qb64lsp + copy help/ → ~/.local/share/qb64lsp/help
 ```
+
+`scripts/qb64lsp.js` is a dependency-free LSP adapter (hand-rolled JSON-RPC over stdio) — like
+the VS Code providers it only maps core queries, so a new core feature can be exposed there too.
+Neither it nor `qb64ref` ships in the `.vsix` (`scripts/**` is in `.vscodeignore`).
 
 - **Run/debug the extension**: press F5 in VS Code (uses `.vscode/launch.json`) to launch an
   Extension Development Host.
