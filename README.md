@@ -89,7 +89,7 @@ Run it as `qb64lsp --stdio`. On startup it indexes every `.bas/.bi/.bm/.inc` und
 the workspace root the client sends. Options go in `initializationOptions`:
 `diagnostics` (default `false`; `true` publishes the same lint as
 [Live linting](#live-linting)), `helpDir` (another folder of help `*.md`), and
-`maxHoverLines` (default 60).
+`maxHoverLines` (default 60), and `maxIndexFiles` (default 5000; above that the workspace is not bulk-indexed, so a wrongly chosen root such as `~/git` cannot stall the server). Set `QB64LSP_TRACE=/some/file` to log every request and how long it took.
 
 **vim + [coc.nvim](https://github.com/neoclide/coc.nvim)** — in `~/.vim/coc-settings.json`:
 
@@ -100,7 +100,7 @@ the workspace root the client sends. Options go in `initializationOptions`:
       "command": "qb64lsp",
       "args": ["--stdio"],
       "filetypes": ["qb64"],
-      "rootPatterns": [".git", "*.code-workspace"],
+      "rootPatterns": [".git"],
       "initializationOptions": { "diagnostics": true }
     }
   }

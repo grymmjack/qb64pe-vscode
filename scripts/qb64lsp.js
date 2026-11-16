@@ -86,7 +86,7 @@ process.stdin.on("data", (chunk) => {
 
 // ---------------------------------------------------------------- state
 let roots = [];
-let options = { diagnostics: false, helpDir: "", maxHoverLines: 60 };
+let options = { diagnostics: false, helpDir: "", maxHoverLines: 60, maxIndexFiles: 5000 };
 const index = new SymbolIndex(createIncludeResolver(() => roots), diskLoader);
 const open = new Set(); // keys of buffers the client has open
 let helpIndex = null;
@@ -95,22 +95,42 @@ const keyOf = (uri) => normalizePath(fileURLToPath(uri));
 const uriOf = (file) => pathToFileURL(file).href;
 const loc = (o) => ({ uri: uriOf(o.file), range: o.range });
 
-function walk(dir, out, depth = 0) {
+// A root that is far too big (e.g. a client that picked ~/git instead of the project) must not
+// freeze the server: the walk stops at maxIndexFiles QB64 files / 20k folders, and then nothing is
+// bulk-indexed. Open files and their $INCLUDE chains still load on demand, so definitions keep
+// working; only workspace-wide references/symbols across unrelated files are lost.
+const MAX_DIRS = 20000;
+class TooBig extends Error {}
+function walk(dir, out, budget, depth = 0) {
   if (depth > 25) return out;
+  if (++budget.dirs > MAX_DIRS) throw new TooBig();
   let ents;
   try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return out; }
   for (const e of ents) {
     if (e.name.startsWith(".") || e.name === "node_modules") continue;
     const full = path.join(dir, e.name);
-    if (e.isDirectory()) walk(full, out, depth + 1);
-    else if (e.isFile() && isQB64File(e.name)) out.push(full);
+    if (e.isDirectory()) walk(full, out, budget, depth + 1);
+    else if (e.isFile() && isQB64File(e.name)) {
+      out.push(full);
+      if (out.length > options.maxIndexFiles) throw new TooBig();
+    }
   }
   return out;
 }
 
 function indexRoots() {
   const files = [];
-  for (const r of roots) walk(r, files);
+  const budget = { dirs: 0 };
+  try {
+    for (const r of roots) walk(r, files, budget);
+  } catch (e) {
+    if (!(e instanceof TooBig)) throw e;
+    const msg = `workspace root ${roots.join(", ")} is too large to index (over ${options.maxIndexFiles} QB64 files or ${MAX_DIRS} folders) - ` +
+      "only open files and their $INCLUDEs are indexed. Check your client's root patterns.";
+    notify("window/showMessage", { type: 2, message: `qb64lsp: ${msg}` });
+    log(msg);
+    return;
+  }
   index.loadMany(files.map((f) => {
     try { return [normalizePath(f), fs.readFileSync(f, "utf8")]; } catch { return null; }
   }).filter(Boolean));
@@ -255,7 +275,7 @@ const handlers = {
       serverInfo: { name: "qb64lsp", version: require("../package.json").version },
     };
   },
-  initialized() { indexRoots(); },
+  initialized() { traceNote(`roots: ${JSON.stringify(roots)}`); indexRoots(); },
   shutdown() { return null; },
   exit() { process.exit(0); },
 
@@ -352,7 +372,23 @@ const handlers = {
   },
 };
 
+// QB64LSP_TRACE=<file>: append one line per message (method, id, handling time) for debugging
+const traceFile = process.env.QB64LSP_TRACE || "";
+function trace(msg, t0, note) {
+  if (!traceFile) return;
+  const ms = (Number(process.hrtime.bigint() - t0) / 1e6).toFixed(1);
+  try { fs.appendFileSync(traceFile, `${new Date().toISOString()} ${msg.method}${msg.id !== undefined ? "#" + msg.id : ""} ${ms}ms${note ? " " + note : ""}\n`); } catch {}
+}
+
+function traceNote(text) {
+  if (traceFile) try { fs.appendFileSync(traceFile, `${new Date().toISOString()} ${text}\n`); } catch {}
+}
+
 function dispatch(msg) {
+  const t0 = process.hrtime.bigint();
+  try { dispatchInner(msg); } finally { trace(msg, t0); }
+}
+function dispatchInner(msg) {
   const h = handlers[msg.method];
   if (msg.id === undefined) { if (h) h(msg.params || {}); return; } // notification
   if (!h) return fail(msg.id, -32601, `unhandled method ${msg.method}`);
