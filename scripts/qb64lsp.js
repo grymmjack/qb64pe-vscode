@@ -173,9 +173,10 @@ function cleanHelp(md) {
     .trim();
 }
 function trimMarkdown(md) {
-  const lines = cleanHelp(md).split(/\r?\n/);
+  const clean = cleanHelp(md);
+  const lines = clean.split(/\r?\n/);
   const max = options.maxHoverLines;
-  return lines.length > max ? lines.slice(0, max).join("\n") + "\n\n…" : md;
+  return lines.length > max ? lines.slice(0, max).join("\n") + "\n\n…" : clean;
 }
 
 // ---------------------------------------------------------------- diagnostics
